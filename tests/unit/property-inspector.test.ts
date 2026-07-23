@@ -60,12 +60,21 @@ test("manifest exposes only the Codex Task action", async () => {
     "com.lukas-bhm.fingertip.sdPlugin/manifest.json",
     "utf8",
   )) as {
+    Name: string;
+    Category: string;
+    Description: string;
     Profiles?: unknown;
     Actions: Array<{
       UUID: string;
       Name: string;
     }>;
   };
+  assert.equal(manifest.Name, "Fingertip Agent");
+  assert.equal(manifest.Category, "Fingertip Agent");
+  assert.equal(
+    manifest.Description,
+    "See live ChatGPT Codex task status on Stream Deck and open the right task with one press.",
+  );
   assert.equal(manifest.Profiles, undefined);
   assert.deepEqual(manifest.Actions.map(({ UUID, Name }) => ({ UUID, Name })), [{
     UUID: "com.lukas-bhm.fingertip.task",
