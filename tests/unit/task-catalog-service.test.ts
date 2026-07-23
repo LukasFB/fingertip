@@ -47,7 +47,7 @@ test("Task catalog reads the bounded catalog and publishes ChatGPT Sidebar order
   assert.equal(service.view.state, "fresh");
 });
 
-test("a uniquely open Task in Codex's selected local project is available to Fast Mode", async () => {
+test("a uniquely open Task in Codex's selected local project remains catalogued", async () => {
   const selectedTask = "00000000-0000-4000-8000-000000000061";
   const otherTask = "00000000-0000-4000-8000-000000000062";
   const service = new TaskCatalogService({

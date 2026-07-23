@@ -30,7 +30,7 @@
   "Actions": [
     {
       "UUID": "com.lukas-bhm.fingertip.task",
-      "Name": "Task",
+      "Name": "Codex Task",
       "Icon": "imgs/actions/task/action",
       "Tooltip": "Shows and opens a ranked local ChatGPT Task.",
       "Controllers": [
@@ -42,41 +42,6 @@
       "States": [
         {
           "Image": "imgs/actions/task/key"
-        }
-      ]
-    },
-    {
-      "UUID": "com.lukas-bhm.fingertip.fast-mode",
-      "Name": "Fast Mode",
-      "Icon": "imgs/actions/fast-mode/action",
-      "Tooltip": "Toggles Fast Mode in the currently visible ChatGPT composer.",
-      "Controllers": [
-        "Keypad"
-      ],
-      "PropertyInspectorPath": "ui/fast-mode-key.html",
-      "UserTitleEnabled": false,
-      "SupportedInMultiActions": false,
-      "States": [
-        {
-          "Image": "imgs/actions/fast-mode/key"
-        }
-      ]
-    },
-    {
-      "UUID": "com.lukas-bhm.fingertip.voice-input",
-      "Name": "Voice Input",
-      "Icon": "imgs/plugin/plugin",
-      "Tooltip": "Toggles ChatGPT global dictation without focusing ChatGPT.",
-      "Controllers": [
-        "Keypad"
-      ],
-      "PropertyInspectorPath": "ui/voice-input-key.html",
-      "UserTitleEnabled": true,
-      "SupportedInMultiActions": false,
-      "States": [
-        {
-          "Image": "imgs/plugin/plugin",
-          "Title": "VOICE"
         }
       ]
     }

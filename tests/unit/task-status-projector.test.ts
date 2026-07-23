@@ -150,50 +150,6 @@ test("a status patch batch is allowlisted and atomic", () => {
   assert.equal(deriveTaskStatus(toTaskLiveFacts(active)), "working");
 });
 
-test("Fast Mode settings are projected and patched without retaining private settings", () => {
-  const fast = projectStatusSnapshot({
-    threadRuntimeStatus: { type: "idle" },
-    hasUnreadTurn: false,
-    requests: [],
-    latestThreadSettings: {
-      serviceTier: "priority",
-      privateSetting: "PRIVATE",
-    },
-  });
-  assert.equal(toTaskLiveFacts(fast).serviceTier, "priority");
-  assert.equal(JSON.stringify(fast).includes("PRIVATE"), false);
-
-  const standard = applyStatusPatches(fast, [{
-    op: "replace",
-    path: ["latestThreadSettings"],
-    value: {
-      serviceTier: null,
-      privateSetting: "PRIVATE",
-    },
-  }]);
-  assert.equal(toTaskLiveFacts(standard).serviceTier, null);
-  const fastAgain = applyStatusPatches(standard, [{
-    op: "replace", path: ["latestThreadSettings", "serviceTier"], value: "priority",
-  }]);
-  assert.equal(toTaskLiveFacts(fastAgain).serviceTier, "priority");
-
-  assert.throws(() => applyStatusPatches(fastAgain, [{
-    op: "replace", path: ["latestThreadSettings"], value: { serviceTier: { id: "internal" } },
-  }]), /invalid service tier/);
-
-  const partialSettingUpdate = applyStatusPatches(fastAgain, [{
-    op: "replace",
-    path: ["latestThreadSettings"],
-    value: { privateSetting: "ignored" },
-  }]);
-  assert.equal(toTaskLiveFacts(partialSettingUpdate).serviceTier, "priority");
-
-  const removedSettings = applyStatusPatches(partialSettingUpdate, [{
-    op: "remove", path: ["latestThreadSettings"],
-  }]);
-  assert.equal(toTaskLiveFacts(removedSettings).serviceTier, undefined);
-});
-
 test("indexed request and active-flag patches preserve desktop array semantics", () => {
   const active = projectStatusSnapshot({
     threadRuntimeStatus: { type: "active", activeFlags: [] },

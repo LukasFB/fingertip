@@ -2,35 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { renderKeySvg, wrapKeyText } from "../../src/rendering/svg-key-renderer.ts";
-import { renderFastModeKeyDataUrl } from "../../src/rendering/utility-key-renderer.ts";
-
-test("Fast Mode uses a hollow Standard bolt and the tuned electric Fast animation", () => {
-  const standard = decodeURIComponent(renderFastModeKeyDataUrl({ state: "standard", offline: false }));
-  const fast = decodeURIComponent(renderFastModeKeyDataUrl({
-    state: "fast",
-    offline: false,
-    animationPhase: 0,
-  }));
-  const loop = decodeURIComponent(renderFastModeKeyDataUrl({
-    state: "fast",
-    offline: false,
-    animationPhase: 1,
-  }));
-
-  assert.equal(standard.includes('fill="none"'), true);
-  assert.equal(standard.includes('stroke-width="7"'), true);
-  assert.equal(standard.includes(">STANDARD</text>"), true);
-  assert.equal(standard.includes('data-animation="fast-electric"'), false);
-  assert.equal(fast.includes('data-animation="fast-electric"'), true);
-  assert.equal(fast.includes('data-arcs="12"'), true);
-  assert.equal(fast.includes('data-sparks="60"'), true);
-  assert.equal(fast.includes('data-frame-phase="0"'), true);
-  assert.equal(fast.includes(">FAST</text>"), true);
-  assert.equal(fast.includes("#ffad28"), true);
-  assert.equal(fast.includes("#fff1a0"), true);
-  assert.equal(fast.includes("#06090b"), true);
-  assert.equal(loop, fast);
-});
 
 test("a project Task renders the approved working key without leaking raw XML", () => {
   const svg = renderKeySvg({

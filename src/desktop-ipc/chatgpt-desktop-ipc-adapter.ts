@@ -33,12 +33,6 @@ interface OwnerState {
   readonly record: LiveTaskRecord;
 }
 
-interface PendingRequest {
-  readonly timer: ReturnType<typeof setTimeout>;
-  readonly method: string;
-  readonly resolve: (value: boolean) => void;
-}
-
 interface DesktopIpcAdapterOptions {
   readonly tempDirectory: string;
   readonly homeDirectory: string;
@@ -66,7 +60,6 @@ type Listener<T> = (event: T) => void;
 // of briefly presenting just that task as offline.
 const OWNER_HANDOFF_GRACE_MS = 10_000;
 const QUEUED_FOLLOW_UP_HANDOFF_GRACE_MS = 5_000;
-const THREAD_FOLLOWER_REQUEST_TIMEOUT_MS = 5_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -127,7 +120,6 @@ export class ChatGptDesktopIpcAdapter {
   readonly #queuedFollowUpHandoffs = new Set<TaskId>();
   readonly #queuedFollowUpHandoffTimers = new Map<TaskId, ReturnType<typeof setTimeout>>();
   readonly #ownerHandoffTimers = new Map<TaskId, ReturnType<typeof setTimeout>>();
-  readonly #pendingRequests = new Map<string, PendingRequest>();
   readonly #followedTaskIds = new Set<TaskId>();
   readonly #hydrationsInFlight = new Set<TaskId>();
   readonly #externalFollowingByClientId = new Map<string, TaskId>();
@@ -200,10 +192,6 @@ export class ChatGptDesktopIpcAdapter {
     this.#reconcileFollowing();
   }
 
-  async setFastMode(taskId: TaskId, enabled: boolean): Promise<boolean> {
-    return this.#updateThreadSettings(taskId, { serviceTier: enabled ? "priority" : null });
-  }
-
   async hydrateTaskIds(taskIds: Iterable<TaskId>): Promise<void> {
     this.#requestedHydrationTaskIds = new Set(taskIds);
     this.#reconcileFollowing();
@@ -225,50 +213,6 @@ export class ChatGptDesktopIpcAdapter {
       this.#hydrationsInFlight.add(taskId);
       this.#announceFollowing(taskId, true);
     }
-  }
-
-  async #updateThreadSettings(taskId: TaskId, threadSettings: Readonly<Record<string, unknown>>): Promise<boolean> {
-    // The desktop IPC host routes this request to the current renderer owner.
-    // A newly selected, idle composer may not have emitted a stream snapshot
-    // yet, so a local owner record is helpful for display but not required to
-    // submit the setting update.
-    return this.#requestThreadFollower(
-      taskId,
-      "thread-follower-update-thread-settings",
-      { conversationId: taskId, threadSettings },
-      THREAD_FOLLOWER_REQUEST_TIMEOUT_MS,
-    );
-  }
-
-  async #requestThreadFollower(
-    taskId: TaskId,
-    method: string,
-    params: Readonly<Record<string, unknown>>,
-    timeoutMs = 2_500,
-  ): Promise<boolean> {
-    void taskId;
-    const clientId = this.#clientId;
-    if (this.#state !== "online" || clientId === null) return false;
-    const requestId = randomUUID();
-    return new Promise<boolean>((resolve) => {
-      const timer = this.#options.setTimer(() => {
-        this.#pendingRequests.delete(requestId);
-        resolve(false);
-      }, timeoutMs);
-      this.#pendingRequests.set(requestId, { timer, method, resolve });
-      try {
-        this.#write({
-          type: "request",
-          requestId,
-          sourceClientId: clientId,
-          version: 1,
-          method,
-          params,
-        });
-      } catch {
-        this.#settlePendingRequest(requestId, false);
-      }
-    });
   }
 
   setCompatibilityFingerprint(fingerprint: string): void {
@@ -368,7 +312,6 @@ export class ChatGptDesktopIpcAdapter {
     this.#requestId = null;
     this.#rejectStart(new Error("desktop IPC stopped"));
     this.#clearOwnerHandoffTimers();
-    this.#settleAllPendingRequests(false);
     this.#setState(this.#incompatibleLatched ? "incompatible" : "offline");
     this.#markAllStale();
     this.#setActiveTask(null);
@@ -488,16 +431,7 @@ export class ChatGptDesktopIpcAdapter {
       this.#acceptInitializeResponse(message);
       return;
     }
-    if (message.type === "response" && this.#state === "online") {
-      const requestId = typeof message.requestId === "string" ? message.requestId : "";
-      const pending = this.#pendingRequests.get(requestId);
-      if (pending !== undefined) {
-        const success = message.method === pending.method
-          && message.resultType === "success";
-        this.#settlePendingRequest(requestId, success);
-      }
-      return;
-    }
+    if (message.type === "response" && this.#state === "online") return;
     if (message.type !== "broadcast" || this.#state !== "online") return;
     const method = boundedString(message.method);
     if (method === "thread-stream-state-changed") {
@@ -625,7 +559,7 @@ export class ChatGptDesktopIpcAdapter {
     if (params.following) {
       // ChatGPT's composer renderer follows exactly the Task it currently
       // displays. Keep this independent from Fingertip's own subscriptions,
-      // which exist only to hydrate Task Keys and the Fast Mode key.
+      // which exist only to hydrate Task Keys.
       this.#externalFollowingByClientId.delete(sourceClientId);
       this.#externalFollowingByClientId.set(sourceClientId, taskId);
       this.#setActiveTask(taskId);
@@ -768,7 +702,6 @@ export class ChatGptDesktopIpcAdapter {
     this.#setActiveTask(null);
     this.#clearQueuedFollowUpHandoffs();
     this.#clearHandshakeTimer();
-    this.#settleAllPendingRequests(false);
     this.#socket?.destroy();
   }
 
@@ -791,7 +724,6 @@ export class ChatGptDesktopIpcAdapter {
     }
     this.#clearHandshakeTimer();
     this.#clearOwnerHandoffTimers();
-    this.#settleAllPendingRequests(false);
     this.#setState("offline");
     this.#markAllStale();
     this.#tasksWithRunnableQueuedFollowUps.clear();
@@ -883,18 +815,6 @@ export class ChatGptDesktopIpcAdapter {
     for (const timer of this.#queuedFollowUpHandoffTimers.values()) this.#options.clearTimer(timer);
     this.#queuedFollowUpHandoffTimers.clear();
     this.#queuedFollowUpHandoffs.clear();
-  }
-
-  #settlePendingRequest(requestId: string, value: boolean): void {
-    const pending = this.#pendingRequests.get(requestId);
-    if (pending === undefined) return;
-    this.#pendingRequests.delete(requestId);
-    this.#options.clearTimer(pending.timer);
-    pending.resolve(value);
-  }
-
-  #settleAllPendingRequests(value: boolean): void {
-    for (const requestId of [...this.#pendingRequests.keys()]) this.#settlePendingRequest(requestId, value);
   }
 
   #markAllStale(): void {

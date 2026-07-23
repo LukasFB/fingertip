@@ -183,7 +183,6 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
                   conversationState: {
                     threadRuntimeStatus: { type: "active", activeFlags: [] },
                     hasUnreadTurn: false,
-                    latestThreadSettings: { serviceTier: "priority", privateSetting: "must-not-cross" },
                     requests: [],
                     privateTitle: "must-not-cross",
                   },
@@ -285,7 +284,6 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
       waitingOnApproval: false,
       waitingOnUserInput: false,
       hasUnreadTurn: false,
-      serviceTier: "priority",
     },
     status: "working",
     freshness: "fresh",
@@ -301,7 +299,6 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
       waitingOnApproval: false,
       waitingOnUserInput: false,
       hasUnreadTurn: true,
-      serviceTier: "priority",
     },
     status: "done",
     freshness: "fresh",
@@ -334,7 +331,6 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
         conversationState: {
           threadRuntimeStatus: { type: "idle" },
           hasUnreadTurn: false,
-          latestThreadSettings: { serviceTier: null },
           requests: [],
         },
       },
@@ -371,7 +367,6 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
       waitingOnUserInput: false,
       hasUnreadTurn: true,
       hasQueuedFollowUp: true,
-      serviceTier: "priority",
     },
     status: "working",
     freshness: "fresh",
@@ -483,20 +478,6 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     params: { conversationId: catalogTaskId, hasUnreadTurn: true },
   }));
   assert.equal((await legacyReadTransition as { facts: { hasUnreadTurn: boolean } }).facts.hasUnreadTurn, true);
-  assert.equal(await adapter.setFastMode(catalogTaskId, false), true);
-  const fastRequest = clientMessages.find((message) =>
-    message.type === "request" && message.method === "thread-follower-update-thread-settings");
-  assert.deepEqual(fastRequest, {
-    type: "request",
-    requestId: fastRequest?.requestId,
-    sourceClientId: "desktop-client",
-    version: 1,
-    method: "thread-follower-update-thread-settings",
-    params: {
-      conversationId: catalogTaskId,
-      threadSettings: { serviceTier: null },
-    },
-  });
   const hydratedRecord = nextRecord();
   await adapter.hydrateTaskIds([hydrationTaskId]);
   assert.equal((await hydratedRecord as { status: string }).status, "done");
@@ -526,11 +507,11 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
         type: "patches",
         baseRevision: 1,
         revision: 2,
-        patches: [{ op: "replace", path: ["latestThreadSettings", "serviceTier"], value: "priority" }],
+        patches: [{ op: "replace", path: ["privateState"], value: "ignored" }],
       },
     },
   }));
-  assert.equal((await hydrationPatch as { facts: { serviceTier: string } }).facts.serviceTier, "priority");
+  assert.equal("privateState" in (await hydrationPatch as { facts: object }).facts, false);
   assert.equal(adapter.activeTaskId, catalogTaskId);
   activeSocketForFollowerReplay.write(encodeIpcFrame({
     type: "broadcast",

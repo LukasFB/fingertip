@@ -47,7 +47,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(html.includes("Dynamic Task status requires this key's custom image to be reset to Default."), true);
   assert.equal(html.includes("Reconnect ChatGPT"), true);
   assert.equal(html.includes("once per minute"), true);
-  assert.equal(html.includes("Applies to every Fingertip Task key."), true);
+  assert.equal(html.includes("Applies to every Codex Task key."), true);
   assert.equal(bridge.includes("ws://127.0.0.1"), true);
   assert.equal(bridge.includes("fetch("), false);
   assert.equal(bridge.includes("XMLHttpRequest"), false);
@@ -55,28 +55,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(bridge.includes("sessionStorage"), false);
 });
 
-test("Fast Mode Property Inspector targets the current composer without Task settings", async () => {
-  const html = await readFile("com.lukas-bhm.fingertip.sdPlugin/ui/fast-mode-key.html", "utf8");
-
-  assert.equal(html.includes('id="task-source"'), false);
-  assert.equal(html.includes('id="task-position"'), false);
-  assert.equal(html.includes("currently visible ChatGPT composer"), true);
-  assert.equal(html.includes("hollow bolt"), true);
-  assert.equal(html.includes("filled yellow-orange electric bolt"), true);
-});
-
-test("Voice Input Property Inspector selects Toggle or Hold and reports missing bindings", async () => {
-  const html = await readFile("com.lukas-bhm.fingertip.sdPlugin/ui/voice-input-key.html", "utf8");
-
-  assert.equal(html.includes('<option value="toggle">Toggle</option>'), true);
-  assert.equal(html.includes('<option value="hold">Hold</option>'), true);
-  assert.equal(html.includes("No global"), true);
-  assert.equal(html.includes("shortcut is configured in ChatGPT"), true);
-  assert.equal(html.includes('event:"setSettings"'), true);
-  assert.equal(html.includes("never brings ChatGPT to the foreground"), true);
-});
-
-test("manifest exposes Task, Fast Mode, and Voice Input actions", async () => {
+test("manifest exposes only the Codex Task action", async () => {
   const manifest = JSON.parse(await readFile(
     "com.lukas-bhm.fingertip.sdPlugin/manifest.json",
     "utf8",
@@ -84,14 +63,14 @@ test("manifest exposes Task, Fast Mode, and Voice Input actions", async () => {
     Profiles?: unknown;
     Actions: Array<{
       UUID: string;
+      Name: string;
     }>;
   };
   assert.equal(manifest.Profiles, undefined);
-  assert.deepEqual(manifest.Actions.map((entry) => entry.UUID), [
-    "com.lukas-bhm.fingertip.task",
-    "com.lukas-bhm.fingertip.fast-mode",
-    "com.lukas-bhm.fingertip.voice-input",
-  ]);
+  assert.deepEqual(manifest.Actions.map(({ UUID, Name }) => ({ UUID, Name })), [{
+    UUID: "com.lukas-bhm.fingertip.task",
+    Name: "Codex Task",
+  }]);
 });
 
 test("Property Inspector keeps Task Position local and persists appearance globally", async () => {

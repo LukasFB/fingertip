@@ -5,9 +5,7 @@ import type { ChatGptBundleResolver } from "../../src/chatgpt/chatgpt-bundle-res
 import type { ChatGptNavigationPort } from "../../src/chatgpt/chatgpt-navigation-port.ts";
 import type {
   ChatGptDesktopIpcAdapter,
-  LiveTaskRecord,
 } from "../../src/desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
-import { parseTaskId } from "../../src/catalog/catalog-projection.ts";
 import {
   computeRetryDelayMs,
   FingertipRuntime,
@@ -73,24 +71,13 @@ test("brief desktop IPC reconnects retain the online key image while a real outa
     if (entry !== undefined) entry.cleared = true;
   }) as typeof clearTimeout;
   const healthListeners = new Set<(state: "connecting" | "online" | "offline" | "incompatible") => void>();
-  const taskListeners = new Set<(record: LiveTaskRecord) => void>();
-  const fastWrites: Array<{ taskId: string; enabled: boolean }> = [];
-  const taskId = parseTaskId("00000000-0000-4000-8000-000000000001");
   const desktopIpc = {
-    activeTaskId: taskId,
     onHealth(listener: (state: "connecting" | "online" | "offline" | "incompatible") => void) {
       healthListeners.add(listener);
       return () => healthListeners.delete(listener);
     },
-    onTaskRecord(listener: (record: LiveTaskRecord) => void) {
-      taskListeners.add(listener);
-      return () => taskListeners.delete(listener);
-    },
+    onTaskRecord() { return () => undefined; },
     onCatalogHint() { return () => undefined; },
-    async setFastMode(targetTaskId: string, enabled: boolean) {
-      fastWrites.push({ taskId: targetTaskId, enabled });
-      return true;
-    },
     async start() {},
     stop() {},
   } as unknown as ChatGptDesktopIpcAdapter;
@@ -101,34 +88,10 @@ test("brief desktop IPC reconnects retain the online key image while a real outa
     setTimer,
     clearTimer,
   });
-  let fastAlerts = 0;
-  runtime.attachFastModeAction({
-    id: "fast",
-    async setImage() {},
-    async showAlert() { fastAlerts += 1; },
-  });
+  runtime.propertyInspectorDidAppear("task");
 
   for (const listener of healthListeners) listener("online");
-  const liveRecord = Object.freeze({
-    taskId,
-    ownerClientId: "window-1",
-    revision: 1,
-    facts: Object.freeze({
-      isActive: false,
-      waitingOnApproval: false,
-      waitingOnUserInput: false,
-      hasUnreadTurn: false,
-    }),
-    status: "idle" as const,
-    freshness: "fresh" as const,
-  });
-  for (const listener of taskListeners) listener(liveRecord);
-  await runtime.pressFastMode("fast");
-  assert.deepEqual(fastWrites, [{ taskId, enabled: true }]);
-  assert.equal(fastAlerts, 0);
-
   for (const listener of healthListeners) listener("offline");
-  for (const listener of taskListeners) listener(Object.freeze({ ...liveRecord, freshness: "stale" as const }));
   const firstWarning = timers.find((timer) => timer.delay === 2_500 && !timer.cleared);
   assert.ok(firstWarning);
   for (const listener of healthListeners) listener("online");
@@ -139,96 +102,6 @@ test("brief desktop IPC reconnects retain the online key image while a real outa
   assert.ok(lastingWarning);
   lastingWarning.callback();
   await Promise.resolve();
-  runtime.shutdown();
-});
-
-test("Fast Mode acknowledges a successful write immediately and never falls back to a project Thread", async () => {
-  const timers: { callback: () => void; delay: number; cleared: boolean }[] = [];
-  const setTimer = ((callback: () => void, delay = 0) => {
-    timers.push({ callback, delay, cleared: false });
-    return timers.length as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
-  const clearTimer = ((timer: ReturnType<typeof setTimeout>) => {
-    const entry = timers[Number(timer) - 1];
-    if (entry !== undefined) entry.cleared = true;
-  }) as typeof clearTimeout;
-  const taskId = parseTaskId("00000000-0000-4000-8000-000000000001");
-  const healthListeners = new Set<(state: "connecting" | "online" | "offline" | "incompatible") => void>();
-  const taskListeners = new Set<(record: LiveTaskRecord) => void>();
-  const writes: Array<{ taskId: string; enabled: boolean }> = [];
-  const desktopIpc = {
-    activeTaskId: taskId,
-    onHealth(listener: (state: "connecting" | "online" | "offline" | "incompatible") => void) {
-      healthListeners.add(listener);
-      return () => healthListeners.delete(listener);
-    },
-    onTaskRecord(listener: (record: LiveTaskRecord) => void) {
-      taskListeners.add(listener);
-      return () => taskListeners.delete(listener);
-    },
-    onCatalogHint() { return () => undefined; },
-    async setFastMode(targetTaskId: string, enabled: boolean) {
-      writes.push({ taskId: targetTaskId, enabled });
-      return true;
-    },
-    async start() {},
-    stop() {},
-  } as unknown as ChatGptDesktopIpcAdapter;
-  const images: string[] = [];
-  let alerts = 0;
-  const runtime = new FingertipRuntime({
-    desktopIpc,
-    bundleResolver: { resolve: () => new Promise<never>(() => undefined) } as unknown as ChatGptBundleResolver,
-    propertyInspector: { async send() {} },
-    setTimer,
-    clearTimer,
-  });
-  runtime.attachFastModeAction({
-    id: "fast",
-    async setImage(image: string) { images.push(image); },
-    async showAlert() { alerts += 1; },
-  });
-  for (const listener of healthListeners) listener("online");
-  const standard = Object.freeze({
-    taskId,
-    ownerClientId: "window-1",
-    revision: 1,
-    facts: Object.freeze({
-      isActive: false,
-      waitingOnApproval: false,
-      waitingOnUserInput: false,
-      hasUnreadTurn: false,
-      serviceTier: "default",
-    }),
-    status: "idle" as const,
-    freshness: "fresh" as const,
-  });
-  for (const listener of taskListeners) listener(standard);
-  await runtime.pressFastMode("fast");
-  await Promise.resolve();
-  assert.deepEqual(writes, [{ taskId, enabled: true }]);
-  assert.equal(decodeURIComponent(images.at(-1) ?? "").includes('data-animation="fast-electric"'), true);
-
-  // A stale settings replay must not undo a successful write while ChatGPT is
-  // still converging on the requested tier.
-  for (const listener of taskListeners) listener(standard);
-  await Promise.resolve();
-  assert.equal(decodeURIComponent(images.at(-1) ?? "").includes('data-animation="fast-electric"'), true);
-
-  const fast = Object.freeze({
-    ...standard,
-    revision: 2,
-    facts: Object.freeze({ ...standard.facts, serviceTier: "priority" }),
-  });
-  for (const listener of taskListeners) listener(fast);
-  for (const listener of taskListeners) listener(Object.freeze({ ...standard, revision: 3 }));
-  await Promise.resolve();
-  assert.equal(decodeURIComponent(images.at(-1) ?? "").includes("STANDARD"), true);
-
-  (desktopIpc as unknown as { activeTaskId: string | null }).activeTaskId = null;
-  await runtime.pressFastMode("fast");
-  assert.equal(alerts, 1);
-  assert.deepEqual(writes, [{ taskId, enabled: true }]);
   runtime.shutdown();
 });
 

@@ -28,10 +28,6 @@ import {
 import { ChatGptDesktopIpcAdapter, type LiveTaskRecord } from "../desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
 import { projectTaskChangeStats, type TaskChangeStats } from "../task-change-stats.ts";
 import {
-  renderFastModeKeyDataUrl,
-  type FastModeVisualState,
-} from "../rendering/utility-key-renderer.ts";
-import {
   DEFAULT_TASK_KEY_APPEARANCE,
   normalizeTaskKeyAppearanceSettings,
   normalizeTaskKeySettings,
@@ -39,7 +35,6 @@ import {
 } from "../settings/task-key-settings.ts";
 import { createKeySnapshot, type KeySnapshot } from "./key-snapshot.ts";
 import type { DesktopState } from "./key-presentation.ts";
-import { FastModeKeyAnimator } from "./fast-mode-key-animator.ts";
 import { TaskKeyRegistry, type TaskKeyActionPort } from "./task-key-registry.ts";
 import { renderSnapshotDataUrl } from "./task-key-render-queue.ts";
 
@@ -50,19 +45,6 @@ const TASK_CHANGE_REFRESH_MS = 45_000;
 
 interface PropertyInspectorPort {
   send(payload: JsonValue): Promise<void>;
-}
-
-interface UtilityKeyActionPort {
-  readonly id: string;
-  setImage(image?: string): Promise<void>;
-  showAlert(): Promise<void>;
-}
-
-interface FastModeEntry {
-  readonly action: UtilityKeyActionPort;
-  readonly animator: FastModeKeyAnimator;
-  propertyInspectorVisible: boolean;
-  state: FastModeVisualState;
 }
 
 export interface CatalogClientLifecyclePort extends CatalogRpcPort {
@@ -115,10 +97,8 @@ export class FingertipRuntime {
   readonly #registry: TaskKeyRegistry;
   readonly #catalogCompatibility = new CatalogCompatibilityTracker();
   readonly #live = new Map<string, LiveTaskRecord>();
-  readonly #optimisticFastModeByTaskId = new Map<string, boolean>();
   readonly #liveExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #propertyInspectorConsumers = new Set<string>();
-  readonly #fastModeActions = new Map<string, FastModeEntry>();
   #catalogView: CatalogView = Object.freeze({ state: "cold", feed: null });
   #desktopState: DesktopState = "connecting";
   #reportedDesktopState: DesktopState = "connecting";
@@ -181,15 +161,6 @@ export class FingertipRuntime {
     });
     this.#options.desktopIpc.onTaskRecord((record) => {
       this.#live.set(record.taskId, record);
-      // Keep a successful toggle visible until ChatGPT supplies its next
-      // matching service-tier value. An unrelated patch can still contain the
-      // renderer's older cached settings and must not undo the successful key
-      // state while ChatGPT is converging.
-      const optimisticFastMode = this.#optimisticFastModeByTaskId.get(record.taskId);
-      if (optimisticFastMode !== undefined && record.facts.serviceTier !== undefined
-        && (record.facts.serviceTier === "priority") === optimisticFastMode) {
-        this.#optimisticFastModeByTaskId.delete(record.taskId);
-      }
       if (this.#catalogService !== null) {
         this.#catalogView = this.#catalogService.rerank(this.#liveStatuses());
         this.#hydrateVisibleTaskStatuses();
@@ -233,68 +204,6 @@ export class FingertipRuntime {
     this.#renderAll();
     this.#hydrateVisibleTaskStatuses();
     if (this.#catalogService !== null) this.#queueCatalogRefresh();
-  }
-
-  attachFastModeAction(action: UtilityKeyActionPort): void {
-    const existing = this.#fastModeActions.get(action.id);
-    if (existing === undefined) {
-      this.#fastModeActions.set(action.id, {
-        action,
-        animator: new FastModeKeyAnimator(action, {
-          setTimer: this.#options.setTimer,
-          clearTimer: this.#options.clearTimer,
-        }),
-        propertyInspectorVisible: false,
-        state: "unknown",
-      });
-    }
-    this.#cancelShutdown();
-    this.#ensureStarted();
-    this.#renderAll();
-  }
-
-  detachFastModeAction(actionId: string): void {
-    this.#fastModeActions.get(actionId)?.animator.dispose();
-    this.#fastModeActions.delete(actionId);
-    this.#propertyInspectorConsumers.delete(actionId);
-    this.#scheduleShutdownIfUnused();
-  }
-
-  async pressFastMode(actionId: string): Promise<void> {
-    const entry = this.#fastModeActions.get(actionId);
-    const activeTaskId = this.#options.desktopIpc.activeTaskId;
-    if (entry === undefined || activeTaskId === null || entry.state === "unknown") {
-      await entry?.action.showAlert().catch(() => undefined);
-      return;
-    }
-    const enabled = entry.state !== "fast";
-    const succeeded = await this.#options.desktopIpc.setFastMode(
-      parseTaskId(activeTaskId),
-      enabled,
-    );
-    if (!succeeded) await entry.action.showAlert().catch(() => undefined);
-    else {
-      this.#optimisticFastModeByTaskId.set(activeTaskId, enabled);
-      this.#renderAll();
-    }
-    await this.#sendPropertyInspector(actionId);
-  }
-
-  fastModePropertyInspectorDidAppear(actionId: string): void {
-    const entry = this.#fastModeActions.get(actionId);
-    if (entry === undefined) return;
-    entry.propertyInspectorVisible = true;
-    this.#propertyInspectorConsumers.add(actionId);
-    this.#cancelShutdown();
-    this.#ensureStarted();
-    void this.#sendPropertyInspector(actionId);
-  }
-
-  fastModePropertyInspectorDidDisappear(actionId: string): void {
-    const entry = this.#fastModeActions.get(actionId);
-    if (entry !== undefined) entry.propertyInspectorVisible = false;
-    this.#propertyInspectorConsumers.delete(actionId);
-    this.#scheduleShutdownIfUnused();
   }
 
   detachAction(actionId: string): void {
@@ -415,11 +324,8 @@ export class FingertipRuntime {
     this.#stopWorkspaceMetadataWatch?.();
     this.#stopWorkspaceMetadataWatch = null;
     this.#registry.clear();
-    for (const entry of this.#fastModeActions.values()) entry.animator.dispose();
-    this.#fastModeActions.clear();
     this.#propertyInspectorConsumers.clear();
     this.#live.clear();
-    this.#optimisticFastModeByTaskId.clear();
     this.#catalogView = Object.freeze({ state: "cold", feed: null });
     this.#desktopState = "connecting";
     this.#reportedDesktopState = "connecting";
@@ -676,7 +582,6 @@ export class FingertipRuntime {
 
   #renderAll(): void {
     this.#registry.render((settings) => this.#snapshot(settings));
-    this.#renderFastModeActions();
     for (const entry of this.#registry.entries()) {
       void entry.queue.whenIdle().then(() => this.#sendPropertyInspector(entry.action.id));
     }
@@ -750,32 +655,6 @@ export class FingertipRuntime {
     );
   }
 
-  #renderFastModeActions(): void {
-    const displayLive = this.#displayLiveRecords();
-    for (const entry of this.#fastModeActions.values()) {
-      const taskId = this.#options.desktopIpc.activeTaskId;
-      const live = taskId === null ? null : displayLive.get(taskId) ?? null;
-      const optimistic = taskId === null ? undefined : this.#optimisticFastModeByTaskId.get(taskId);
-      const state: FastModeVisualState = optimistic !== undefined
-        ? optimistic ? "fast" : "standard"
-        : live?.freshness !== "fresh"
-          ? "unknown"
-          : live.facts.serviceTier === "priority" ? "fast" : "standard";
-      const offline = this.#desktopState !== "online";
-      const signature = JSON.stringify({
-        taskId,
-        state,
-        offline,
-      });
-      entry.state = state;
-      entry.animator.render({
-        signature,
-        state,
-        offline,
-      });
-    }
-  }
-
   #liveStatuses(): ReadonlyMap<string, LiveTaskRecord["status"]> {
     return new Map([...this.#live].map(([taskId, record]) => [
       taskId,
@@ -828,24 +707,6 @@ export class FingertipRuntime {
   }
 
   async #sendPropertyInspector(actionId: string): Promise<void> {
-    const fastEntry = this.#fastModeActions.get(actionId);
-    if (fastEntry !== undefined) {
-      if (!this.#propertyInspectorConsumers.has(actionId)) return;
-      await this.#options.propertyInspector.send({
-        type: "fingertip-fast-mode-state",
-        preview: renderFastModeKeyDataUrl({
-          state: fastEntry.state,
-          offline: this.#desktopState !== "online",
-        }),
-        fastMode: fastEntry.state,
-        hasActiveComposer: this.#options.desktopIpc.activeTaskId !== null,
-        connection: {
-          label: this.#desktopState === "online" ? "Connected" : "ChatGPT connection unavailable",
-          appVersion: this.#bundle?.appVersion ?? "",
-        },
-      }).catch(() => undefined);
-      return;
-    }
     const entry = this.#registry.get(actionId);
     if (entry === null || !this.#propertyInspectorConsumers.has(actionId)) return;
     const snapshot = entry.queue.displayedSnapshot ?? this.#snapshot(entry.settings);
@@ -877,8 +738,8 @@ export class FingertipRuntime {
   }
 
   #scheduleShutdownIfUnused(): void {
-    if (this.#registry.size !== 0 || this.#fastModeActions.size !== 0
-      || this.#propertyInspectorConsumers.size !== 0 || this.#shutdownTimer !== null) return;
+    if (this.#registry.size !== 0 || this.#propertyInspectorConsumers.size !== 0
+      || this.#shutdownTimer !== null) return;
     this.#shutdownTimer = this.#options.setTimer(() => this.shutdown(), 30_000);
   }
 

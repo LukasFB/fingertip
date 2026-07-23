@@ -1,8 +1,7 @@
 # Fingertip
 
 Fingertip is a macOS Stream Deck plugin for showing and opening local ChatGPT
-tasks. It mirrors ChatGPT's sidebar order, displays live task state, and includes
-controls for Fast Mode and voice input.
+tasks. It mirrors ChatGPT's sidebar order and displays live task state.
 
 Requirements: macOS 13 or newer, Stream Deck 7.1 or newer, ChatGPT for macOS,
 Node.js 24, and a coding agent with terminal access.

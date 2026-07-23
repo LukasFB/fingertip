@@ -1,8 +1,6 @@
 import streamDeck from "@elgato/streamdeck";
 
 import { TaskKeyAction } from "./actions/task-key-action.ts";
-import { FastModeKeyAction } from "./actions/fast-mode-key-action.ts";
-import { VoiceInputKeyAction } from "./actions/voice-input-key-action.ts";
 import { lockProductionLogLevel } from "./production-logging.ts";
 import { FingertipRuntime } from "./runtime/fingertip-runtime.ts";
 import { AppearanceSettingsController } from "./settings/appearance-settings-controller.ts";
@@ -25,11 +23,6 @@ streamDeck.actions.registerAction(new TaskKeyAction(runtime, (settings) => {
   void appearance.offerLegacy(settings);
   void appearance.offerLegacyBadges(settings);
 }));
-streamDeck.actions.registerAction(new FastModeKeyAction(runtime));
-streamDeck.actions.registerAction(new VoiceInputKeyAction(
-  undefined,
-  (payload) => streamDeck.ui.sendToPropertyInspector(payload),
-));
 streamDeck.settings.onDidReceiveGlobalSettings<TaskKeyAppearanceSettings>((event) => {
   void appearance.receive(event.settings);
 });
