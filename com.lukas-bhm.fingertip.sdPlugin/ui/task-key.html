@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fingertip Task Settings</title>
+  <script src="sdpi-components.js"></script>
+  <style>
+    :root { color-scheme: dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { margin: 0; padding: 12px; color: #f7f7f7; background: #292929; }
+    .item { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 10px; align-items: center; margin: 0 0 12px; }
+    label { color: #d4d4d4; text-align: right; }
+    input, select, button { box-sizing: border-box; width: 100%; accent-color: #96cff4; }
+    input[type="number"] { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
+    select { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
+    input[type="color"] { min-height: 30px; padding: 2px; border: 1px solid #555; border-radius: 5px; background: #383838; cursor: pointer; }
+    .colors { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+    .color { display: grid; gap: 4px; color: #aaa; font-size: 10px; text-align: center; }
+    .range { display: grid; grid-template-columns: 1fr 38px; gap: 8px; align-items: center; }
+    .value { color: #96cff4; text-align: right; font-variant-numeric: tabular-nums; }
+    .segments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 6px; background: #202020; }
+    .segments button { min-height: 26px; color: #ccc; border: 1px solid transparent; background: #383838; }
+    .segments button[aria-pressed="true"] { color: #111; border-color: #bde2fa; background: #96cff4; }
+    .toggle { display: flex; align-items: center; gap: 8px; }
+    .toggle input { width: auto; }
+    .helper, .notice { color: #aaa; font-size: 11px; line-height: 1.35; }
+    .preview-wrap { display: flex; align-items: center; gap: 12px; }
+    #preview { width: 92px; height: 92px; border-radius: 12px; background: #0b0d10; box-shadow: 0 0 20px rgba(150, 207, 244, .18); }
+    #connection { line-height: 1.35; }
+    #versions { margin-top: 3px; color: #999; font-size: 10px; overflow-wrap: anywhere; }
+    button { min-height: 30px; color: #111; font-weight: 600; border: 0; border-radius: 5px; background: #96cff4; cursor: pointer; }
+    button.secondary { color: #eee; border: 1px solid #666; background: #3a3a3a; }
+    .notice { margin-top: 16px; padding: 9px; border: 1px solid #555; border-radius: 5px; background: #232323; }
+  </style>
+</head>
+<body>
+  <div class="item">
+    <label for="task-source">Source</label>
+    <select id="task-source">
+      <option value="pinned-projects">Pinned + Projects</option>
+      <option value="tasks">Tasks</option>
+    </select>
+  </div>
+  <div class="item">
+    <label for="task-position">Task Position</label>
+    <div>
+      <input id="task-position" type="number" min="1" max="99" step="1" value="1">
+      <div class="helper">1 is the first Task within the selected sidebar section.</div>
+    </div>
+  </div>
+  <div class="item">
+    <label for="queue-badge">Queue Badge</label>
+    <label class="toggle"><input id="queue-badge" type="checkbox"><span>Show queued messages</span></label>
+  </div>
+  <div class="item">
+    <label for="goal-badge">Goal Badge</label>
+    <label class="toggle"><input id="goal-badge" type="checkbox"><span>Show ongoing goal</span></label>
+  </div>
+  <div class="item">
+    <label for="badge-position">Badge Position</label>
+    <select id="badge-position">
+      <option value="top-right">Top right</option>
+      <option value="top-left">Top left</option>
+      <option value="bottom-left">Bottom left</option>
+      <option value="bottom-right">Bottom right</option>
+      <option value="bottom-replaces-git">Bottom replaces Git</option>
+    </select>
+  </div>
+  <div class="item">
+    <label for="badge-size">Badge Font Size</label>
+    <div class="range">
+      <input id="badge-size" type="range" min="8" max="18" step="1" value="15">
+      <span id="badge-size-value" class="value">15 px</span>
+    </div>
+  </div>
+  <div class="item">
+    <label for="window-target">Open In</label>
+    <div>
+      <select id="window-target">
+        <option value="last-active">Last active window</option>
+        <option value="leftmost">Leftmost window</option>
+        <option value="rightmost">Rightmost window</option>
+      </select>
+    </div>
+  </div>
+  <div class="item">
+    <label></label>
+    <div class="helper">Appearance · Applies to every Fingertip Task key.</div>
+  </div>
+  <div class="item">
+    <label for="title-size">Title Size</label>
+    <div class="range">
+      <input id="title-size" type="range" min="8" max="12" step="1" value="10">
+      <span id="title-size-value" class="value">10 px</span>
+    </div>
+  </div>
+  <div class="item">
+    <label for="project-size">Project Size</label>
+    <div class="range">
+      <input id="project-size" type="range" min="6" max="12" step="1" value="8">
+      <span id="project-size-value" class="value">8 px</span>
+    </div>
+  </div>
+  <div class="item">
+    <label for="time-size">Time / Lines Mod. Size</label>
+    <div class="range">
+      <input id="time-size" type="range" min="5" max="10" step="1" value="6">
+      <span id="time-size-value" class="value">6 px</span>
+    </div>
+  </div>
+  <div class="item">
+    <label>Alignment</label>
+    <div id="alignment" class="segments" role="group" aria-label="Text alignment">
+      <button type="button" data-alignment="left" aria-pressed="true">Left</button>
+      <button type="button" data-alignment="center" aria-pressed="false">Center</button>
+      <button type="button" data-alignment="right" aria-pressed="false">Right</button>
+    </div>
+  </div>
+  <div class="item">
+    <label for="border-enabled">Border</label>
+    <label class="toggle"><input id="border-enabled" type="checkbox" checked><span>Show key border</span></label>
+  </div>
+  <div class="item">
+    <label for="git-diff-stats">Task Changes</label>
+    <label class="toggle"><input id="git-diff-stats" type="checkbox"><span>Show Lines Modified by Task</span></label>
+  </div>
+  <div class="item">
+    <label>State Colors</label>
+    <div>
+      <div class="colors">
+        <label class="color" for="idle-color"><input id="idle-color" type="color" value="#06090b"><span>Idle</span></label>
+        <label class="color" for="working-color"><input id="working-color" type="color" value="#9cd5fe"><span>Work</span></label>
+        <label class="color" for="done-color"><input id="done-color" type="color" value="#9bf396"><span>Done</span></label>
+        <label class="color" for="waiting-color"><input id="waiting-color" type="color" value="#ffd0b8"><span>Wait</span></label>
+        <label class="color" for="confirmation-color"><input id="confirmation-color" type="color" value="#ffad28"><span>Approval</span></label>
+      </div>
+      <div class="helper">Shared globally. Idle defaults to a low-glare dark gray.</div>
+    </div>
+  </div>
+  <div class="item">
+    <label></label>
+    <button id="reset-appearance" class="secondary" type="button">Reset appearance to defaults</button>
+  </div>
+  <div class="item">
+    <label>Preview</label>
+    <div class="preview-wrap"><img id="preview" alt="Current Task key preview"></div>
+  </div>
+  <div class="item">
+    <label>Connection</label>
+    <div>
+      <div id="connection">Connecting…</div>
+      <div id="versions"></div>
+    </div>
+  </div>
+  <div id="retry-item" class="item">
+    <label></label>
+    <div>
+      <button id="retry" type="button">Reconnect ChatGPT</button>
+      <div class="helper">Rebuilds the local ChatGPT socket connection. If it drops, Fingertip retries automatically once per minute.</div>
+    </div>
+  </div>
+  <div class="notice">Dynamic Task status requires this key's custom image to be reset to Default.</div>
+  <script>
+    const source = document.querySelector("#task-source");
+    const position = document.querySelector("#task-position");
+    const queueBadge = document.querySelector("#queue-badge");
+    const goalBadge = document.querySelector("#goal-badge");
+    const badgePosition = document.querySelector("#badge-position");
+    const badgeSize = document.querySelector("#badge-size");
+    const badgeSizeValue = document.querySelector("#badge-size-value");
+    const windowTarget = document.querySelector("#window-target");
+    const titleSize = document.querySelector("#title-size");
+    const titleSizeValue = document.querySelector("#title-size-value");
+    const projectSize = document.querySelector("#project-size");
+    const projectSizeValue = document.querySelector("#project-size-value");
+    const timeSize = document.querySelector("#time-size");
+    const timeSizeValue = document.querySelector("#time-size-value");
+    const alignmentButtons = [...document.querySelectorAll("[data-alignment]")];
+    const borderEnabled = document.querySelector("#border-enabled");
+    const gitDiffStats = document.querySelector("#git-diff-stats");
+    const colorInputs = {
+      idleColor: document.querySelector("#idle-color"),
+      workingColor: document.querySelector("#working-color"),
+      doneColor: document.querySelector("#done-color"),
+      waitingColor: document.querySelector("#waiting-color"),
+      confirmationColor: document.querySelector("#confirmation-color"),
+    };
+    const preview = document.querySelector("#preview");
+    const connection = document.querySelector("#connection");
+    const versions = document.querySelector("#versions");
+
+    FingertipPI.onSettings((settings) => {
+      source.value = settings.taskSource;
+      position.value = String(settings.taskPosition);
+      queueBadge.checked = settings.showQueueBadge;
+      goalBadge.checked = settings.showGoalBadge;
+      badgePosition.value = settings.badgePosition;
+      badgeSize.value = String(settings.badgeFontSize);
+      badgeSizeValue.textContent = `${settings.badgeFontSize} px`;
+      windowTarget.value = settings.windowTarget;
+      titleSize.value = String(settings.titleFontSize);
+      titleSizeValue.textContent = `${settings.titleFontSize} px`;
+      projectSize.value = String(settings.projectFontSize);
+      projectSizeValue.textContent = `${settings.projectFontSize} px`;
+      timeSize.value = String(settings.timeFontSize);
+      timeSizeValue.textContent = `${settings.timeFontSize} px`;
+      for (const button of alignmentButtons) {
+        button.setAttribute("aria-pressed", String(button.dataset.alignment === settings.textAlignment));
+      }
+      borderEnabled.checked = settings.borderEnabled;
+      gitDiffStats.checked = settings.showGitDiffStats;
+      for (const [key, input] of Object.entries(colorInputs)) {
+        if (typeof settings[key] === "string") input.value = settings[key];
+      }
+    });
+    FingertipPI.onState((state) => {
+      if (!state || state.type !== "fingertip-state") return;
+      preview.src = state.preview;
+      const info = state.connection || {};
+      connection.textContent = `${info.label || "Connecting…"}${info.retrySeconds ? ` · retry in ${info.retrySeconds}s` : ""}`;
+      versions.textContent = [info.appVersion && `ChatGPT ${info.appVersion}`, info.codexVersion].filter(Boolean).join(" · ");
+    });
+    position.addEventListener("input", () => {
+      const taskPosition = Number(position.value);
+      if (!Number.isInteger(taskPosition) || taskPosition < 1 || taskPosition > 99) return;
+      FingertipPI.setSetting("taskPosition", taskPosition);
+    });
+    source.addEventListener("change", () => FingertipPI.setSetting("taskSource", source.value));
+    queueBadge.addEventListener("change", () => FingertipPI.setSetting("showQueueBadge", queueBadge.checked));
+    goalBadge.addEventListener("change", () => FingertipPI.setSetting("showGoalBadge", goalBadge.checked));
+    badgePosition.addEventListener("change", () => FingertipPI.setSetting("badgePosition", badgePosition.value));
+    badgeSize.addEventListener("input", () => {
+      badgeSizeValue.textContent = `${badgeSize.value} px`;
+      FingertipPI.setSetting("badgeFontSize", Number(badgeSize.value));
+    });
+    windowTarget.addEventListener("change", () => FingertipPI.setSetting("windowTarget", windowTarget.value));
+    titleSize.addEventListener("input", () => {
+      titleSizeValue.textContent = `${titleSize.value} px`;
+      FingertipPI.setSetting("titleFontSize", Number(titleSize.value));
+    });
+    projectSize.addEventListener("input", () => {
+      projectSizeValue.textContent = `${projectSize.value} px`;
+      FingertipPI.setSetting("projectFontSize", Number(projectSize.value));
+    });
+    timeSize.addEventListener("input", () => {
+      timeSizeValue.textContent = `${timeSize.value} px`;
+      FingertipPI.setSetting("timeFontSize", Number(timeSize.value));
+    });
+    for (const button of alignmentButtons) {
+      button.addEventListener("click", () => FingertipPI.setSetting("textAlignment", button.dataset.alignment));
+    }
+    borderEnabled.addEventListener("change", () => FingertipPI.setSetting("borderEnabled", borderEnabled.checked));
+    gitDiffStats.addEventListener("change", () => FingertipPI.setSetting("showGitDiffStats", gitDiffStats.checked));
+    for (const [key, input] of Object.entries(colorInputs)) {
+      input.addEventListener("input", () => FingertipPI.setSetting(key, input.value));
+    }
+    document.querySelector("#retry").addEventListener("click", () => FingertipPI.retry());
+    document.querySelector("#reset-appearance").addEventListener("click", () => FingertipPI.resetAppearance());
+  </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+/agent-work/
+/node_modules/
+/dist/
+/.idea/
+/.DS_Store
+/com.lukas-bhm.fingertip.sdPlugin/bin/
+/com.lukas-bhm.fingertip.sdPlugin/logs/

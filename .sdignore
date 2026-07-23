@@ -1,0 +1,16 @@
+agent-work/
+dist/
+node_modules/
+src/
+tests/
+.git/
+.github/
+.idea/
+.DS_Store
+*.map
+*.log
+eslint.config.mjs
+package-lock.json
+package.json
+rollup.config.mjs
+tsconfig.json
