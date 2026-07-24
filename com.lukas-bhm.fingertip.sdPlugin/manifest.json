@@ -6,7 +6,7 @@
   "Author": "Lukas Böhm",
   "Description": "See live ChatGPT Codex task status on Stream Deck and open the right task with one press.",
   "Category": "Fingertip Agent",
-  "CategoryIcon": "imgs/plugin/category",
+  "CategoryIcon": "imgs/plugin/category-list",
   "Icon": "imgs/plugin/plugin",
   "CodePath": "bin/plugin.js",
   "SDKVersion": 3,
@@ -31,7 +31,7 @@
     {
       "UUID": "com.lukas-bhm.fingertip.task",
       "Name": "Codex Task",
-      "Icon": "imgs/actions/task/action",
+      "Icon": "imgs/actions/task/action-list",
       "Tooltip": "Shows and opens a ranked local ChatGPT Task.",
       "Controllers": [
         "Keypad"

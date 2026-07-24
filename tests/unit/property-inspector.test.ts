@@ -62,15 +62,18 @@ test("manifest exposes only the Codex Task action", async () => {
   )) as {
     Name: string;
     Category: string;
+    CategoryIcon: string;
     Description: string;
     Profiles?: unknown;
     Actions: Array<{
       UUID: string;
       Name: string;
+      Icon: string;
     }>;
   };
   assert.equal(manifest.Name, "Fingertip Agent");
   assert.equal(manifest.Category, "Fingertip Agent");
+  assert.equal(manifest.CategoryIcon, "imgs/plugin/category-list");
   assert.equal(
     manifest.Description,
     "See live ChatGPT Codex task status on Stream Deck and open the right task with one press.",
@@ -80,6 +83,19 @@ test("manifest exposes only the Codex Task action", async () => {
     UUID: "com.lukas-bhm.fingertip.task",
     Name: "Codex Task",
   }]);
+  assert.equal(manifest.Actions[0]?.Icon, "imgs/actions/task/action-list");
+});
+
+test("action-list icons are white SVGs with transparent backgrounds", async () => {
+  for (const path of [
+    "com.lukas-bhm.fingertip.sdPlugin/imgs/plugin/category-list.svg",
+    "com.lukas-bhm.fingertip.sdPlugin/imgs/actions/task/action-list.svg",
+  ]) {
+    const svg = await readFile(path, "utf8");
+    assert.match(svg, /stroke="#FFFFFF"/u);
+    assert.match(svg, /fill="none"/u);
+    assert.doesNotMatch(svg, /<rect[^>]+fill=/u);
+  }
 });
 
 test("Property Inspector keeps Task Position local and persists appearance globally", async () => {
