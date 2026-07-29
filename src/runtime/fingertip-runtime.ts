@@ -26,11 +26,14 @@ import {
   selectDiagnosticCode,
 } from "../diagnostics/safe-diagnostics.ts";
 import { ChatGptDesktopIpcAdapter, type LiveTaskRecord } from "../desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
+import { MacTaskNotifier, type TaskNotifier } from "../notifications/mac-task-notifier.ts";
+import { taskTransitionNotification } from "../notifications/task-transition-notification.ts";
 import { projectTaskChangeStats, type TaskChangeStats } from "../task-change-stats.ts";
 import {
   DEFAULT_TASK_KEY_APPEARANCE,
   normalizeTaskKeyAppearanceSettings,
   normalizeTaskKeySettings,
+  type TaskNotificationStatus,
   type TaskKeySettings,
 } from "../settings/task-key-settings.ts";
 import { createKeySnapshot, type KeySnapshot } from "./key-snapshot.ts";
@@ -79,6 +82,7 @@ interface RuntimeOptions {
   readonly setTimer: typeof setTimeout;
   readonly clearTimer: typeof clearTimeout;
   readonly now: () => number;
+  readonly notifier: TaskNotifier;
 }
 
 export function computeRetryDelayMs(attempt: number, random: () => number): number {
@@ -145,6 +149,7 @@ export class FingertipRuntime {
       setTimer: options.setTimer ?? setTimeout,
       clearTimer: options.clearTimer ?? clearTimeout,
       now: options.now ?? Date.now,
+      notifier: options.notifier ?? new MacTaskNotifier(),
     };
     this.#registry = new TaskKeyRegistry((actionId) => {
       void this.#sendPropertyInspector(actionId);
@@ -160,11 +165,19 @@ export class FingertipRuntime {
       if (state === "offline" && this.#running) this.#scheduleIpcRetry();
     });
     this.#options.desktopIpc.onTaskRecord((record) => {
+      const previous = this.#live.get(record.taskId);
+      const visibleTaskIds = new Set(this.#visibleTaskIds());
+      const visibleTask = this.#catalogView.feed?.find((task) => task.id === record.taskId
+        && visibleTaskIds.has(task.id));
       this.#live.set(record.taskId, record);
       if (this.#catalogService !== null) {
         this.#catalogView = this.#catalogService.rerank(this.#liveStatuses());
         this.#hydrateVisibleTaskStatuses();
       }
+      const notification = visibleTask === undefined
+        ? null
+        : taskTransitionNotification(previous, record, this.#appearance, visibleTask.title);
+      if (notification !== null) this.#options.notifier.notify(notification);
       if (!this.#catalogHas(record.taskId)) this.#scheduleLiveExpiry(record.taskId);
       this.#renderAll();
     });
@@ -242,6 +255,23 @@ export class FingertipRuntime {
     this.#clearIpcRetry();
     void this.#startIpc(this.#generation);
     void this.#sendVisiblePropertyInspector();
+  }
+
+  async importCustomSound(status: TaskNotificationStatus): Promise<void> {
+    await this.#options.notifier.importCustomSound(status).catch(() => false);
+    await this.#sendVisiblePropertyInspector();
+  }
+
+  previewSound(status: TaskNotificationStatus): void {
+    const done = status === "done";
+    this.#options.notifier.notify({
+      status,
+      mode: "sound",
+      source: done ? this.#appearance.doneSoundSource : this.#appearance.confirmationSoundSource,
+      sound: done ? this.#appearance.doneSound : this.#appearance.confirmationSound,
+      volume: done ? this.#appearance.doneVolume : this.#appearance.confirmationVolume,
+      taskTitle: "Sound preview",
+    });
   }
 
   applicationDidLaunch(): void {
@@ -723,10 +753,18 @@ export class FingertipRuntime {
       (this.#catalogRetryAt ?? 0) - this.#options.now(),
       (this.#ipcRetryAt ?? 0) - this.#options.now(),
     ) / 1_000);
+    const [doneCustomSound, confirmationCustomSound] = await Promise.all([
+      this.#options.notifier.customSoundAvailable("done"),
+      this.#options.notifier.customSoundAvailable("confirmation"),
+    ]);
     await this.#options.propertyInspector.send({
       type: "fingertip-state",
       preview: renderSnapshotDataUrl(snapshot),
       appearance: this.#appearance,
+      customSounds: {
+        done: doneCustomSound,
+        confirmation: confirmationCustomSound,
+      },
       connection: {
         code,
         label: diagnosticLabel(code),

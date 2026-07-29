@@ -48,6 +48,26 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(html.includes("Reconnect ChatGPT"), true);
   assert.equal(html.includes("once per minute"), true);
   assert.equal(html.includes("Applies to every Codex Task key."), true);
+  assert.equal(html.includes('id="done-notification"'), true);
+  assert.equal(html.includes('id="confirmation-notification"'), true);
+  assert.equal(html.includes("Notif. Done"), true);
+  assert.equal(html.includes("Notif Blocked"), true);
+  assert.equal(html.includes('data-notification-mode="toast"'), true);
+  assert.equal(html.includes('data-notification-mode="sound"'), true);
+  assert.equal(html.includes('data-notification-mode="both"'), true);
+  assert.equal(html.includes('data-sound-source="system"'), true);
+  assert.equal(html.includes('data-sound-source="custom"'), true);
+  assert.equal(html.includes('id="done-play-sound"'), true);
+  assert.equal(html.includes('id="confirmation-play-sound"'), true);
+  assert.match(html, /id="done-volume" type="range" min="0" max="100"/u);
+  assert.match(html, /id="confirmation-volume" type="range" min="0" max="100"/u);
+  for (const tab of ["general", "appearance", "notifications", "status"]) {
+    assert.equal(html.includes(`data-tab-button="${tab}"`), true);
+    assert.equal(html.includes(`data-tab="${tab}"`), true);
+  }
+  assert.equal(html.includes("activateTab"), true);
+  assert.equal(html.includes("Choose audio…"), true);
+  assert.equal(html.includes("Custom audio"), true);
   assert.equal(bridge.includes("ws://127.0.0.1"), true);
   assert.equal(bridge.includes("fetch("), false);
   assert.equal(bridge.includes("XMLHttpRequest"), false);
@@ -168,7 +188,7 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const message = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(message?.event, "setGlobalSettings");
   assert.deepEqual(message?.payload, {
-    version: 8,
+    version: 11,
     windowTarget: "last-active",
     titleFontSize: 11,
     projectFontSize: 9,
@@ -185,6 +205,14 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     doneColor: "#9bf396",
     waitingColor: "#ffd0b8",
     confirmationColor: "#ffad28",
+    doneNotification: "off",
+    doneSoundSource: "system",
+    doneSound: "Glass",
+    doneVolume: 100,
+    confirmationNotification: "off",
+    confirmationSoundSource: "system",
+    confirmationSound: "Basso",
+    confirmationVolume: 100,
   });
 
   api.setSetting("taskPosition", 7);
@@ -225,12 +253,19 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   assert.equal(target?.event, "setGlobalSettings");
   assert.equal(target?.payload?.windowTarget, "rightmost");
 
+  api.setSetting("doneNotification", "both");
+  api.setSetting("doneSoundSource", "custom");
+  api.setSetting("doneSound", "Ping");
+  api.setSetting("doneVolume", 35);
+  api.setSetting("confirmationNotification", "toast");
+  assert.equal((sent.at(-1)?.payload as Record<string, unknown> | undefined)?.confirmationNotification, "toast");
+
   const resetApi = window.FingertipPI as { resetAppearance(): void };
   resetApi.resetAppearance();
   const reset = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(reset?.event, "setGlobalSettings");
   assert.deepEqual(reset?.payload, {
-    version: 8,
+    version: 11,
     windowTarget: "rightmost",
     titleFontSize: 10,
     projectFontSize: 8,
@@ -247,5 +282,32 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     doneColor: "#9bf396",
     waitingColor: "#ffd0b8",
     confirmationColor: "#ffad28",
+    doneNotification: "both",
+    doneSoundSource: "custom",
+    doneSound: "Ping",
+    doneVolume: 35,
+    confirmationNotification: "toast",
+    confirmationSoundSource: "system",
+    confirmationSound: "Basso",
+    confirmationVolume: 100,
+  });
+
+  const soundApi = window.FingertipPI as {
+    importCustomSound(status: string): void;
+    previewSound(status: string): void;
+  };
+  soundApi.importCustomSound("done");
+  assert.deepEqual(sent.at(-1), {
+    action: "com.lukas-bhm.fingertip.task",
+    event: "sendToPlugin",
+    context: "pi-context",
+    payload: { command: "import-custom-sound", status: "done" },
+  });
+  soundApi.previewSound("confirmation");
+  assert.deepEqual(sent.at(-1), {
+    action: "com.lukas-bhm.fingertip.task",
+    event: "sendToPlugin",
+    context: "pi-context",
+    payload: { command: "preview-sound", status: "confirmation" },
   });
 });

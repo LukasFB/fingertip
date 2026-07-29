@@ -9,6 +9,10 @@
     :root { color-scheme: dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
     body { margin: 0; padding: 12px; color: #f7f7f7; background: #292929; }
     .item { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 10px; align-items: center; margin: 0 0 12px; }
+    .item[hidden], .notice[hidden] { display: none; }
+    .tabs { position: sticky; z-index: 2; top: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 0 0 14px; padding: 3px; border-radius: 7px; background: #202020; }
+    .tabs button { min-width: 0; min-height: 28px; padding: 0 4px; overflow: hidden; color: #ccc; font-size: 11px; text-overflow: ellipsis; border: 1px solid transparent; background: #383838; }
+    .tabs button[aria-selected="true"] { color: #111; border-color: #bde2fa; background: #96cff4; }
     label { color: #d4d4d4; text-align: right; }
     input, select, button { box-sizing: border-box; width: 100%; accent-color: #96cff4; }
     input[type="number"] { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
@@ -19,10 +23,19 @@
     .range { display: grid; grid-template-columns: 1fr 38px; gap: 8px; align-items: center; }
     .value { color: #96cff4; text-align: right; font-variant-numeric: tabular-nums; }
     .segments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 6px; background: #202020; }
+    .notification-mode { grid-template-columns: repeat(4, 1fr); }
     .segments button { min-height: 26px; color: #ccc; border: 1px solid transparent; background: #383838; }
     .segments button[aria-pressed="true"] { color: #111; border-color: #bde2fa; background: #96cff4; }
     .toggle { display: flex; align-items: center; gap: 8px; }
     .toggle input { width: auto; }
+    .notification { display: grid; gap: 7px; }
+    .notification-sound { display: grid; gap: 7px; }
+    .notification-sound[hidden] { display: none; }
+    .sound-source { grid-template-columns: repeat(2, 1fr); }
+    .sound-choice[hidden] { display: none; }
+    .audio-actions { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; align-items: center; }
+    .audio-actions .range { grid-template-columns: minmax(0, 1fr) 38px; }
+    .audio-actions button { padding: 0 8px; white-space: nowrap; }
     .helper, .notice { color: #aaa; font-size: 11px; line-height: 1.35; }
     .preview-wrap { display: flex; align-items: center; gap: 12px; }
     #preview { width: 92px; height: 92px; border-radius: 12px; background: #0b0d10; box-shadow: 0 0 20px rgba(150, 207, 244, .18); }
@@ -34,29 +47,35 @@
   </style>
 </head>
 <body>
-  <div class="item">
+  <nav class="tabs" aria-label="Settings sections">
+    <button type="button" data-tab-button="general" aria-selected="true">General</button>
+    <button type="button" data-tab-button="appearance" aria-selected="false">Appearance</button>
+    <button type="button" data-tab-button="notifications" aria-selected="false">Notif.</button>
+    <button type="button" data-tab-button="status" aria-selected="false">Status</button>
+  </nav>
+  <div class="item" data-tab="general">
     <label for="task-source">Source</label>
     <select id="task-source">
       <option value="pinned-projects">Pinned + Projects</option>
       <option value="tasks">Tasks</option>
     </select>
   </div>
-  <div class="item">
+  <div class="item" data-tab="general">
     <label for="task-position">Task Position</label>
     <div>
       <input id="task-position" type="number" min="1" max="99" step="1" value="1">
       <div class="helper">1 is the first Task within the selected sidebar section.</div>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="general">
     <label for="queue-badge">Queue Badge</label>
     <label class="toggle"><input id="queue-badge" type="checkbox"><span>Show queued messages</span></label>
   </div>
-  <div class="item">
+  <div class="item" data-tab="general">
     <label for="goal-badge">Goal Badge</label>
     <label class="toggle"><input id="goal-badge" type="checkbox"><span>Show ongoing goal</span></label>
   </div>
-  <div class="item">
+  <div class="item" data-tab="general">
     <label for="badge-position">Badge Position</label>
     <select id="badge-position">
       <option value="top-right">Top right</option>
@@ -66,14 +85,14 @@
       <option value="bottom-replaces-git">Bottom replaces Git</option>
     </select>
   </div>
-  <div class="item">
+  <div class="item" data-tab="general">
     <label for="badge-size">Badge Font Size</label>
     <div class="range">
       <input id="badge-size" type="range" min="8" max="18" step="1" value="15">
       <span id="badge-size-value" class="value">15 px</span>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="general">
     <label for="window-target">Open In</label>
     <div>
       <select id="window-target">
@@ -83,32 +102,32 @@
       </select>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label></label>
     <div class="helper">Appearance · Applies to every Codex Task key.</div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label for="title-size">Title Size</label>
     <div class="range">
       <input id="title-size" type="range" min="8" max="12" step="1" value="10">
       <span id="title-size-value" class="value">10 px</span>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label for="project-size">Project Size</label>
     <div class="range">
       <input id="project-size" type="range" min="6" max="12" step="1" value="8">
       <span id="project-size-value" class="value">8 px</span>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label for="time-size">Time / Lines Mod. Size</label>
     <div class="range">
       <input id="time-size" type="range" min="5" max="10" step="1" value="6">
       <span id="time-size-value" class="value">6 px</span>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label>Alignment</label>
     <div id="alignment" class="segments" role="group" aria-label="Text alignment">
       <button type="button" data-alignment="left" aria-pressed="true">Left</button>
@@ -116,15 +135,15 @@
       <button type="button" data-alignment="right" aria-pressed="false">Right</button>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label for="border-enabled">Border</label>
     <label class="toggle"><input id="border-enabled" type="checkbox" checked><span>Show key border</span></label>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label for="git-diff-stats">Task Changes</label>
     <label class="toggle"><input id="git-diff-stats" type="checkbox"><span>Show Lines Modified by Task</span></label>
   </div>
-  <div class="item">
+  <div class="item" data-tab="appearance" hidden>
     <label>State Colors</label>
     <div>
       <div class="colors">
@@ -137,29 +156,95 @@
       <div class="helper">Shared globally. Idle defaults to a low-glare dark gray.</div>
     </div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="notifications" hidden>
+    <label></label>
+    <div class="helper">Notifications · Applies to every Codex Task key.</div>
+  </div>
+  <div class="item" data-tab="notifications" hidden>
+    <label>Notif. Done</label>
+    <div class="notification">
+      <div id="done-notification" class="segments notification-mode" role="group" aria-label="Done notification">
+        <button type="button" data-notification-status="done" data-notification-mode="off" aria-pressed="true">Off</button>
+        <button type="button" data-notification-status="done" data-notification-mode="toast" aria-pressed="false">Toast</button>
+        <button type="button" data-notification-status="done" data-notification-mode="sound" aria-pressed="false">Audio</button>
+        <button type="button" data-notification-status="done" data-notification-mode="both" aria-pressed="false">Both</button>
+      </div>
+      <div id="done-sound-controls" class="notification-sound" hidden>
+        <div class="segments sound-source" role="group" aria-label="Done audio source">
+          <button type="button" data-sound-status="done" data-sound-source="system" aria-pressed="true">System</button>
+          <button type="button" data-sound-status="done" data-sound-source="custom" aria-pressed="false">Custom</button>
+        </div>
+        <div id="done-system-sound" class="sound-choice">
+          <select id="done-sound" aria-label="Done system sound"></select>
+        </div>
+        <div id="done-custom-sound-controls" class="sound-choice" hidden>
+          <button id="done-custom-sound" class="secondary" type="button">Choose audio…</button>
+        </div>
+        <div class="audio-actions">
+          <button id="done-play-sound" class="secondary" type="button" aria-label="Play done sound">▶ Play</button>
+          <div class="range">
+            <input id="done-volume" type="range" min="0" max="100" step="1" value="100" aria-label="Done sound volume">
+            <span id="done-volume-value" class="value">100%</span>
+          </div>
+        </div>
+        <div id="done-custom-state" class="helper"></div>
+      </div>
+    </div>
+  </div>
+  <div class="item" data-tab="notifications" hidden>
+    <label>Notif Blocked</label>
+    <div class="notification">
+      <div id="confirmation-notification" class="segments notification-mode" role="group" aria-label="Blocked notification">
+        <button type="button" data-notification-status="confirmation" data-notification-mode="off" aria-pressed="true">Off</button>
+        <button type="button" data-notification-status="confirmation" data-notification-mode="toast" aria-pressed="false">Toast</button>
+        <button type="button" data-notification-status="confirmation" data-notification-mode="sound" aria-pressed="false">Audio</button>
+        <button type="button" data-notification-status="confirmation" data-notification-mode="both" aria-pressed="false">Both</button>
+      </div>
+      <div id="confirmation-sound-controls" class="notification-sound" hidden>
+        <div class="segments sound-source" role="group" aria-label="Blocked audio source">
+          <button type="button" data-sound-status="confirmation" data-sound-source="system" aria-pressed="true">System</button>
+          <button type="button" data-sound-status="confirmation" data-sound-source="custom" aria-pressed="false">Custom</button>
+        </div>
+        <div id="confirmation-system-sound" class="sound-choice">
+          <select id="confirmation-sound" aria-label="Blocked system sound"></select>
+        </div>
+        <div id="confirmation-custom-sound-controls" class="sound-choice" hidden>
+          <button id="confirmation-custom-sound" class="secondary" type="button">Choose audio…</button>
+        </div>
+        <div class="audio-actions">
+          <button id="confirmation-play-sound" class="secondary" type="button" aria-label="Play blocked sound">▶ Play</button>
+          <div class="range">
+            <input id="confirmation-volume" type="range" min="0" max="100" step="1" value="100" aria-label="Blocked sound volume">
+            <span id="confirmation-volume-value" class="value">100%</span>
+          </div>
+        </div>
+        <div id="confirmation-custom-state" class="helper"></div>
+      </div>
+    </div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
     <label></label>
     <button id="reset-appearance" class="secondary" type="button">Reset appearance to defaults</button>
   </div>
-  <div class="item">
+  <div class="item" data-tab="status" hidden>
     <label>Preview</label>
     <div class="preview-wrap"><img id="preview" alt="Current Codex Task key preview"></div>
   </div>
-  <div class="item">
+  <div class="item" data-tab="status" hidden>
     <label>Connection</label>
     <div>
       <div id="connection">Connecting…</div>
       <div id="versions"></div>
     </div>
   </div>
-  <div id="retry-item" class="item">
+  <div id="retry-item" class="item" data-tab="status" hidden>
     <label></label>
     <div>
       <button id="retry" type="button">Reconnect ChatGPT</button>
       <div class="helper">Rebuilds the local ChatGPT socket connection. If it drops, Fingertip retries automatically once per minute.</div>
     </div>
   </div>
-  <div class="notice">Dynamic Task status requires this key's custom image to be reset to Default.</div>
+  <div class="notice" data-tab="status" hidden>Dynamic Task status requires this key's custom image to be reset to Default.</div>
   <script>
     const source = document.querySelector("#task-source");
     const position = document.querySelector("#task-position");
@@ -185,9 +270,66 @@
       waitingColor: document.querySelector("#waiting-color"),
       confirmationColor: document.querySelector("#confirmation-color"),
     };
+    const systemSounds = [
+      "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero",
+      "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink",
+    ];
+    const notifications = {
+      done: {
+        modeButtons: [...document.querySelectorAll('[data-notification-status="done"]')],
+        sourceButtons: [...document.querySelectorAll('[data-sound-status="done"]')],
+        sound: document.querySelector("#done-sound"),
+        controls: document.querySelector("#done-sound-controls"),
+        systemControls: document.querySelector("#done-system-sound"),
+        customControls: document.querySelector("#done-custom-sound-controls"),
+        choose: document.querySelector("#done-custom-sound"),
+        play: document.querySelector("#done-play-sound"),
+        volume: document.querySelector("#done-volume"),
+        volumeValue: document.querySelector("#done-volume-value"),
+        customState: document.querySelector("#done-custom-state"),
+      },
+      confirmation: {
+        modeButtons: [...document.querySelectorAll('[data-notification-status="confirmation"]')],
+        sourceButtons: [...document.querySelectorAll('[data-sound-status="confirmation"]')],
+        sound: document.querySelector("#confirmation-sound"),
+        controls: document.querySelector("#confirmation-sound-controls"),
+        systemControls: document.querySelector("#confirmation-system-sound"),
+        customControls: document.querySelector("#confirmation-custom-sound-controls"),
+        choose: document.querySelector("#confirmation-custom-sound"),
+        play: document.querySelector("#confirmation-play-sound"),
+        volume: document.querySelector("#confirmation-volume"),
+        volumeValue: document.querySelector("#confirmation-volume-value"),
+        customState: document.querySelector("#confirmation-custom-state"),
+      },
+    };
+    for (const notification of Object.values(notifications)) {
+      for (const sound of systemSounds) notification.sound.add(new Option(sound, sound));
+    }
     const preview = document.querySelector("#preview");
     const connection = document.querySelector("#connection");
     const versions = document.querySelector("#versions");
+    const tabButtons = [...document.querySelectorAll("[data-tab-button]")];
+    const tabContents = [...document.querySelectorAll("[data-tab]")];
+
+    function activateTab(tab) {
+      for (const button of tabButtons) {
+        button.setAttribute("aria-selected", String(button.dataset.tabButton === tab));
+      }
+      for (const content of tabContents) content.hidden = content.dataset.tab !== tab;
+    }
+    for (const button of tabButtons) {
+      button.addEventListener("click", () => activateTab(button.dataset.tabButton));
+    }
+
+    function renderSoundSource(notification, source) {
+      for (const button of notification.sourceButtons) {
+        button.setAttribute("aria-pressed", String(button.dataset.soundSource === source));
+      }
+      notification.systemControls.hidden = source !== "system";
+      notification.customControls.hidden = source !== "custom";
+      notification.customState.textContent = source === "custom"
+        ? "Choose a custom audio file if none is stored yet (max. 25 MB)." : "";
+    }
 
     FingertipPI.onSettings((settings) => {
       source.value = settings.taskSource;
@@ -212,6 +354,17 @@
       for (const [key, input] of Object.entries(colorInputs)) {
         if (typeof settings[key] === "string") input.value = settings[key];
       }
+      for (const [status, notification] of Object.entries(notifications)) {
+        const mode = settings[`${status}Notification`];
+        for (const button of notification.modeButtons) {
+          button.setAttribute("aria-pressed", String(button.dataset.notificationMode === mode));
+        }
+        notification.sound.value = settings[`${status}Sound`];
+        notification.volume.value = String(settings[`${status}Volume`]);
+        notification.volumeValue.textContent = `${settings[`${status}Volume`]}%`;
+        notification.controls.hidden = mode !== "sound" && mode !== "both";
+        renderSoundSource(notification, settings[`${status}SoundSource`]);
+      }
     });
     FingertipPI.onState((state) => {
       if (!state || state.type !== "fingertip-state") return;
@@ -219,6 +372,14 @@
       const info = state.connection || {};
       connection.textContent = `${info.label || "Connecting…"}${info.retrySeconds ? ` · retry in ${info.retrySeconds}s` : ""}`;
       versions.textContent = [info.appVersion && `ChatGPT ${info.appVersion}`, info.codexVersion].filter(Boolean).join(" · ");
+      for (const [status, notification] of Object.entries(notifications)) {
+        const available = state.customSounds?.[status] === true;
+        const selectedSource = notification.sourceButtons.find((button) => button.getAttribute("aria-pressed") === "true")
+          ?.dataset.soundSource;
+        notification.customState.textContent = selectedSource === "custom"
+          ? available ? "Custom audio is ready." : "Choose a custom audio file first (max. 25 MB)."
+          : "";
+      }
     });
     position.addEventListener("input", () => {
       const taskPosition = Number(position.value);
@@ -253,6 +414,33 @@
     gitDiffStats.addEventListener("change", () => FingertipPI.setSetting("showGitDiffStats", gitDiffStats.checked));
     for (const [key, input] of Object.entries(colorInputs)) {
       input.addEventListener("input", () => FingertipPI.setSetting(key, input.value));
+    }
+    for (const [status, notification] of Object.entries(notifications)) {
+      for (const button of notification.modeButtons) {
+        button.addEventListener("click", () => {
+          const mode = button.dataset.notificationMode;
+          notification.controls.hidden = mode !== "sound" && mode !== "both";
+          for (const candidate of notification.modeButtons) {
+            candidate.setAttribute("aria-pressed", String(candidate === button));
+          }
+          FingertipPI.setSetting(`${status}Notification`, mode);
+        });
+      }
+      notification.sound.addEventListener("change", () => {
+        FingertipPI.setSetting(`${status}Sound`, notification.sound.value);
+      });
+      for (const button of notification.sourceButtons) {
+        button.addEventListener("click", () => {
+          renderSoundSource(notification, button.dataset.soundSource);
+          FingertipPI.setSetting(`${status}SoundSource`, button.dataset.soundSource);
+        });
+      }
+      notification.choose.addEventListener("click", () => FingertipPI.importCustomSound(status));
+      notification.play.addEventListener("click", () => FingertipPI.previewSound(status));
+      notification.volume.addEventListener("input", () => {
+        notification.volumeValue.textContent = `${notification.volume.value}%`;
+        FingertipPI.setSetting(`${status}Volume`, Number(notification.volume.value));
+      });
     }
     document.querySelector("#retry").addEventListener("click", () => FingertipPI.retry());
     document.querySelector("#reset-appearance").addEventListener("click", () => FingertipPI.resetAppearance());

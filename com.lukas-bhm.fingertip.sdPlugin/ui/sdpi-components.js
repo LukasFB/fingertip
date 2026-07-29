@@ -10,7 +10,7 @@
     taskSource: "pinned-projects",
   });
   const appearanceDefaults = Object.freeze({
-    version: 8,
+    version: 11,
     windowTarget: "last-active",
     titleFontSize: 10,
     projectFontSize: 8,
@@ -27,6 +27,14 @@
     doneColor: "#9bf396",
     waitingColor: "#ffd0b8",
     confirmationColor: "#ffad28",
+    doneNotification: "off",
+    doneSoundSource: "system",
+    doneSound: "Glass",
+    doneVolume: 100,
+    confirmationNotification: "off",
+    confirmationSoundSource: "system",
+    confirmationSound: "Basso",
+    confirmationVolume: 100,
   });
   let localSettings = { ...localDefaults };
   let appearance = { ...appearanceDefaults };
@@ -57,8 +65,20 @@
       ? source[key].toLowerCase() : appearanceDefaults[key];
     const normalizedIdle = color("idleColor");
     const normalizedConfirmation = color("confirmationColor");
+    const notificationMode = (key) => source[key] === "toast"
+      || source[key] === "sound"
+      || source[key] === "both"
+      ? source[key] : "off";
+    const systemSounds = [
+      "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero",
+      "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink",
+    ];
+    const notificationSound = (key) => systemSounds.includes(source[key])
+      ? source[key] : appearanceDefaults[key];
+    const notificationSoundSource = (key, legacySoundKey) => source[key] === "custom"
+      || source[legacySoundKey] === "custom" ? "custom" : "system";
     return {
-      version: 8,
+      version: 11,
       windowTarget: source.windowTarget === "leftmost" || source.windowTarget === "rightmost"
         ? source.windowTarget : "last-active",
       titleFontSize: integer("titleFontSize", 8, 12),
@@ -81,6 +101,14 @@
         && source.version <= 7
         && normalizedConfirmation === "#ff7373"
         ? appearanceDefaults.confirmationColor : normalizedConfirmation,
+      doneNotification: notificationMode("doneNotification"),
+      doneSoundSource: notificationSoundSource("doneSoundSource", "doneSound"),
+      doneSound: notificationSound("doneSound"),
+      doneVolume: integer("doneVolume", 0, 100),
+      confirmationNotification: notificationMode("confirmationNotification"),
+      confirmationSoundSource: notificationSoundSource("confirmationSoundSource", "confirmationSound"),
+      confirmationSound: notificationSound("confirmationSound"),
+      confirmationVolume: integer("confirmationVolume", 0, 100),
     };
   }
 
@@ -132,9 +160,36 @@
       notifySettings();
     },
     resetAppearance() {
-      appearance = { ...appearanceDefaults, windowTarget: appearance.windowTarget };
+      appearance = {
+        ...appearanceDefaults,
+        windowTarget: appearance.windowTarget,
+        doneNotification: appearance.doneNotification,
+        doneSoundSource: appearance.doneSoundSource,
+        doneSound: appearance.doneSound,
+        doneVolume: appearance.doneVolume,
+        confirmationNotification: appearance.confirmationNotification,
+        confirmationSoundSource: appearance.confirmationSoundSource,
+        confirmationSound: appearance.confirmationSound,
+        confirmationVolume: appearance.confirmationVolume,
+      };
       send({ event: "setGlobalSettings", context, payload: appearance });
       notifySettings();
+    },
+    importCustomSound(status) {
+      send({
+        action,
+        event: "sendToPlugin",
+        context,
+        payload: { command: "import-custom-sound", status },
+      });
+    },
+    previewSound(status) {
+      send({
+        action,
+        event: "sendToPlugin",
+        context,
+        payload: { command: "preview-sound", status },
+      });
     },
     retry() {
       send({ action, event: "sendToPlugin", context, payload: { command: "retry-now" } });

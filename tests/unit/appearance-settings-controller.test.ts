@@ -25,7 +25,7 @@ test("an existing global appearance is applied and wins over legacy key settings
 
   controller.offerLegacy(legacy);
   await controller.load({
-    version: 8,
+    version: 11,
     windowTarget: "rightmost",
     titleFontSize: 11,
     projectFontSize: 9,
@@ -42,6 +42,14 @@ test("an existing global appearance is applied and wins over legacy key settings
     doneColor: "#333333",
     waitingColor: "#444444",
     confirmationColor: "#555555",
+    doneNotification: "off",
+    doneSoundSource: "system",
+    doneSound: "Glass",
+    doneVolume: 100,
+    confirmationNotification: "off",
+    confirmationSoundSource: "system",
+    confirmationSound: "Basso",
+    confirmationVolume: 100,
   });
 
   assert.equal(applied.at(-1)?.projectFontSize, 9);

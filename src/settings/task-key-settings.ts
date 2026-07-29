@@ -33,9 +33,29 @@ export type TaskKeyBadgeAppearanceSettings = Pick<
 
 export type TaskKeyTextAlignment = "left" | "center" | "right";
 export type ChatGptWindowTarget = "last-active" | "leftmost" | "rightmost";
+export type TaskNotificationMode = "off" | "toast" | "sound" | "both";
+export type TaskNotificationStatus = "done" | "confirmation";
+export type TaskNotificationSoundSource = "system" | "custom";
+export const MAC_SYSTEM_SOUNDS = Object.freeze([
+  "Basso",
+  "Blow",
+  "Bottle",
+  "Frog",
+  "Funk",
+  "Glass",
+  "Hero",
+  "Morse",
+  "Ping",
+  "Pop",
+  "Purr",
+  "Sosumi",
+  "Submarine",
+  "Tink",
+] as const);
+export type TaskNotificationSound = typeof MAC_SYSTEM_SOUNDS[number];
 
 export interface TaskKeyAppearanceSettings extends JsonObject {
-  readonly version: 8;
+  readonly version: 11;
   readonly windowTarget: ChatGptWindowTarget;
   readonly titleFontSize: number;
   readonly projectFontSize: number;
@@ -52,6 +72,14 @@ export interface TaskKeyAppearanceSettings extends JsonObject {
   readonly doneColor: string;
   readonly waitingColor: string;
   readonly confirmationColor: string;
+  readonly doneNotification: TaskNotificationMode;
+  readonly doneSoundSource: TaskNotificationSoundSource;
+  readonly doneSound: TaskNotificationSound;
+  readonly doneVolume: number;
+  readonly confirmationNotification: TaskNotificationMode;
+  readonly confirmationSoundSource: TaskNotificationSoundSource;
+  readonly confirmationSound: TaskNotificationSound;
+  readonly confirmationVolume: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -90,6 +118,20 @@ function windowTarget(value: unknown): ChatGptWindowTarget {
   return value === "leftmost" || value === "rightmost" ? value : "last-active";
 }
 
+function notificationMode(value: unknown): TaskNotificationMode {
+  return value === "toast" || value === "sound" || value === "both" ? value : "off";
+}
+
+function notificationSound(value: unknown, fallback: TaskNotificationSound): TaskNotificationSound {
+  return MAC_SYSTEM_SOUNDS.some((sound) => sound === value)
+    ? value as TaskNotificationSound
+    : fallback;
+}
+
+function notificationSoundSource(value: unknown, legacySound: unknown): TaskNotificationSoundSource {
+  return value === "custom" || legacySound === "custom" ? "custom" : "system";
+}
+
 export function normalizeTaskKeySettings(value: unknown): TaskKeySettings {
   const record = isRecord(value) ? value : {};
   return Object.freeze({
@@ -112,7 +154,7 @@ export function normalizeTaskKeyAppearanceSettings(value: unknown): TaskKeyAppea
     ? DEFAULT_TASK_KEY_COLORS.confirmation
     : normalizedConfirmation;
   return Object.freeze({
-    version: 8,
+    version: 11,
     windowTarget: windowTarget(record.windowTarget),
     titleFontSize: integerInRange(record.titleFontSize, 8, 12, 10),
     projectFontSize: integerInRange(record.projectFontSize, 6, 12, 8),
@@ -129,6 +171,14 @@ export function normalizeTaskKeyAppearanceSettings(value: unknown): TaskKeyAppea
     doneColor: color(record.doneColor, DEFAULT_TASK_KEY_COLORS.done),
     waitingColor: color(record.waitingColor, DEFAULT_TASK_KEY_COLORS.waiting),
     confirmationColor,
+    doneNotification: notificationMode(record.doneNotification),
+    doneSoundSource: notificationSoundSource(record.doneSoundSource, record.doneSound),
+    doneSound: notificationSound(record.doneSound, "Glass"),
+    doneVolume: integerInRange(record.doneVolume, 0, 100, 100),
+    confirmationNotification: notificationMode(record.confirmationNotification),
+    confirmationSoundSource: notificationSoundSource(record.confirmationSoundSource, record.confirmationSound),
+    confirmationSound: notificationSound(record.confirmationSound, "Basso"),
+    confirmationVolume: integerInRange(record.confirmationVolume, 0, 100, 100),
   });
 }
 
@@ -173,7 +223,7 @@ export function taskKeySettingsNeedWriteback(value: unknown): boolean {
 }
 
 export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean {
-  if (!isRecord(value) || Object.keys(value).length !== 17) {
+  if (!isRecord(value) || Object.keys(value).length !== 25) {
     return true;
   }
   const normalized = normalizeTaskKeyAppearanceSettings(value);
@@ -193,5 +243,13 @@ export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean 
     || value.workingColor !== normalized.workingColor
     || value.doneColor !== normalized.doneColor
     || value.waitingColor !== normalized.waitingColor
-    || value.confirmationColor !== normalized.confirmationColor;
+    || value.confirmationColor !== normalized.confirmationColor
+    || value.doneNotification !== normalized.doneNotification
+    || value.doneSoundSource !== normalized.doneSoundSource
+    || value.doneSound !== normalized.doneSound
+    || value.doneVolume !== normalized.doneVolume
+    || value.confirmationNotification !== normalized.confirmationNotification
+    || value.confirmationSoundSource !== normalized.confirmationSoundSource
+    || value.confirmationSound !== normalized.confirmationSound
+    || value.confirmationVolume !== normalized.confirmationVolume;
 }

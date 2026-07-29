@@ -47,7 +47,7 @@ test("only exact normalized local settings avoid a writeback", () => {
 
 test("missing global appearance uses quiet idle and Codex Micro status colors", () => {
   assert.deepEqual(normalizeTaskKeyAppearanceSettings(undefined), {
-    version: 8,
+    version: 11,
     windowTarget: "last-active",
     titleFontSize: 10,
     projectFontSize: 8,
@@ -64,6 +64,14 @@ test("missing global appearance uses quiet idle and Codex Micro status colors", 
     doneColor: "#9bf396",
     waitingColor: "#ffd0b8",
     confirmationColor: "#ffad28",
+    doneNotification: "off",
+    doneSoundSource: "system",
+    doneSound: "Glass",
+    doneVolume: 100,
+    confirmationNotification: "off",
+    confirmationSoundSource: "system",
+    confirmationSound: "Basso",
+    confirmationVolume: 100,
   });
 });
 
@@ -83,7 +91,7 @@ test("global font sizes and colors are normalized independently", () => {
       confirmationColor: "#fedcba",
     }),
     {
-      version: 8,
+      version: 11,
       windowTarget: "rightmost",
       titleFontSize: 12,
       projectFontSize: 6,
@@ -100,6 +108,14 @@ test("global font sizes and colors are normalized independently", () => {
       doneColor: "#9bf396",
       waitingColor: "#ffd0b8",
       confirmationColor: "#fedcba",
+      doneNotification: "off",
+      doneSoundSource: "system",
+      doneSound: "Glass",
+      doneVolume: 100,
+      confirmationNotification: "off",
+      confirmationSoundSource: "system",
+      confirmationSound: "Basso",
+      confirmationVolume: 100,
     },
   );
   assert.equal(normalizeTaskKeyAppearanceSettings({ titleFontSize: 13 }).titleFontSize, 10);
@@ -118,6 +134,17 @@ test("global font sizes and colors are normalized independently", () => {
   }
   assert.equal(normalizeTaskKeyAppearanceSettings({ windowTarget: "leftmost" }).windowTarget, "leftmost");
   assert.equal(normalizeTaskKeyAppearanceSettings({ windowTarget: "middle" }).windowTarget, "last-active");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneNotification: "toast" }).doneNotification, "toast");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ confirmationNotification: "sound" }).confirmationNotification, "sound");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneNotification: "both" }).doneNotification, "both");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneNotification: "invalid" }).doneNotification, "off");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneSound: "Ping" }).doneSound, "Ping");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ confirmationSound: "custom" }).confirmationSoundSource, "custom");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ confirmationSound: "custom" }).confirmationSound, "Basso");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneSoundSource: "custom" }).doneSoundSource, "custom");
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneVolume: 42 }).doneVolume, 42);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneVolume: 101 }).doneVolume, 100);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneSound: "Nope" }).doneSound, "Glass");
 });
 
 test("only exact normalized global appearance avoids a writeback", () => {
@@ -161,7 +188,7 @@ test("legacy per-key appearance can seed the central appearance once", () => {
       confirmationColor: "#555555",
     }),
     {
-      version: 8,
+      version: 11,
       windowTarget: "last-active",
       titleFontSize: 11,
       projectFontSize: 8,
@@ -178,6 +205,14 @@ test("legacy per-key appearance can seed the central appearance once", () => {
       doneColor: "#333333",
       waitingColor: "#444444",
       confirmationColor: "#555555",
+      doneNotification: "off",
+      doneSoundSource: "system",
+      doneSound: "Glass",
+      doneVolume: 100,
+      confirmationNotification: "off",
+      confirmationSoundSource: "system",
+      confirmationSound: "Basso",
+      confirmationVolume: 100,
     },
   );
   assert.equal(legacyTaskKeyAppearance({ version: 4, taskPosition: 4 }), null);

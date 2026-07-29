@@ -12,13 +12,27 @@ import {
 import type { JsonObject, JsonValue } from "@elgato/utils";
 
 import type { FingertipRuntime } from "../runtime/fingertip-runtime.ts";
-import { taskKeySettingsNeedWriteback, type TaskKeySettings } from "../settings/task-key-settings.ts";
+import {
+  taskKeySettingsNeedWriteback,
+  type TaskKeySettings,
+  type TaskNotificationStatus,
+} from "../settings/task-key-settings.ts";
 
 type PersistedTaskKeySettings = JsonObject & Partial<TaskKeySettings>;
 
-function isRetryMessage(value: JsonValue): boolean {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    && (value as Record<string, JsonValue>).command === "retry-now";
+function command(value: JsonValue): { name: string; status?: TaskNotificationStatus } | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, JsonValue>;
+  if (record.command === "retry-now") return { name: "retry-now" };
+  if (record.command === "import-custom-sound"
+    && (record.status === "done" || record.status === "confirmation")) {
+    return { name: "import-custom-sound", status: record.status };
+  }
+  if (record.command === "preview-sound"
+    && (record.status === "done" || record.status === "confirmation")) {
+    return { name: "preview-sound", status: record.status };
+  }
+  return null;
 }
 
 function persisted(settings: TaskKeySettings): PersistedTaskKeySettings {
@@ -76,6 +90,13 @@ export class TaskKeyAction extends SingletonAction<PersistedTaskKeySettings> {
   }
 
   override onSendToPlugin(event: SendToPluginEvent<JsonValue, PersistedTaskKeySettings>): void {
-    if (isRetryMessage(event.payload)) this.#runtime.retryNow();
+    const received = command(event.payload);
+    if (received?.name === "retry-now") this.#runtime.retryNow();
+    if (received?.name === "import-custom-sound" && received.status !== undefined) {
+      void this.#runtime.importCustomSound(received.status);
+    }
+    if (received?.name === "preview-sound" && received.status !== undefined) {
+      this.#runtime.previewSound(received.status);
+    }
   }
 }

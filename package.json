@@ -1,6 +1,6 @@
 {
   "name": "fingertip-agent",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -13,6 +13,7 @@
     "test": "node --test",
     "lint": "eslint src tests rollup.config.mjs eslint.config.mjs",
     "check": "npm run typecheck && npm run lint && npm test",
+    "reload": "npm run build && streamdeck restart com.lukas-bhm.fingertip",
     "watch": "rollup -c -w"
   },
   "dependencies": {
