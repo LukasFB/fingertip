@@ -41,6 +41,7 @@ function persisted(settings: TaskKeySettings): PersistedTaskKeySettings {
     version: settings.version,
     taskPosition: settings.taskPosition,
     taskSource: settings.taskSource,
+    moveActiveUnreadThreadsToTop: settings.moveActiveUnreadThreadsToTop,
   };
 }
 

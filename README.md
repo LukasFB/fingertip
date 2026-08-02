@@ -67,7 +67,9 @@ or give your coding agent this prompt from the repository directory:
 Add or select a Codex Task key in Stream Deck:
 
 - **General** selects the sidebar source, one-based task position, badges, and
-  target ChatGPT window, including the active-task conversation behavior.
+  target ChatGPT window, including the active-task conversation behavior. An
+  optional thread ordering moves active and unread Threads to the top while
+  keeping pinned threads unchanged.
 - **Appearance** controls shared key colors, fonts, alignment, borders,
   deterministic project bar colors, project-color opacity, and line-change
   statistics.

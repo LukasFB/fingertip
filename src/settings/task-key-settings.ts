@@ -19,9 +19,10 @@ export const DEFAULT_TASK_KEY_COLORS: TaskKeyColors = Object.freeze({
 const LEGACY_CONFIRMATION_COLOR = "#ff7373";
 
 export interface TaskKeySettings extends JsonObject {
-  readonly version: 7;
+  readonly version: 9;
   readonly taskPosition: number;
   readonly taskSource: TaskKeySource;
+  readonly moveActiveUnreadThreadsToTop: boolean;
 }
 
 export type TaskKeySource = "pinned-projects" | "tasks";
@@ -141,9 +142,11 @@ function notificationSoundSource(value: unknown, legacySound: unknown): TaskNoti
 export function normalizeTaskKeySettings(value: unknown): TaskKeySettings {
   const record = isRecord(value) ? value : {};
   return Object.freeze({
-    version: 7,
+    version: 9,
     taskPosition: integerInRange(record.taskPosition, 1, 99, 1),
     taskSource: taskSource(record.taskSource),
+    moveActiveUnreadThreadsToTop: record.moveActiveUnreadThreadsToTop === true
+      || (record.moveActiveUnreadThreadsToTop === undefined && record.skipSettledProjectTasks === true),
   });
 }
 
@@ -225,13 +228,14 @@ export function legacyTaskKeyBadgeAppearance(value: unknown): TaskKeyBadgeAppear
 }
 
 export function taskKeySettingsNeedWriteback(value: unknown): boolean {
-  if (!isRecord(value) || Object.keys(value).length !== 3) {
+  if (!isRecord(value) || Object.keys(value).length !== 4) {
     return true;
   }
   const normalized = normalizeTaskKeySettings(value);
   return value.version !== normalized.version
     || value.taskPosition !== normalized.taskPosition
-    || value.taskSource !== normalized.taskSource;
+    || value.taskSource !== normalized.taskSource
+    || value.moveActiveUnreadThreadsToTop !== normalized.moveActiveUnreadThreadsToTop;
 }
 
 export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean {

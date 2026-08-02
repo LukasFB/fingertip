@@ -70,6 +70,13 @@
     </div>
   </div>
   <div class="item" data-tab="general">
+    <label for="move-active-unread-threads">Project Threads</label>
+    <div>
+      <label class="toggle"><input id="move-active-unread-threads" type="checkbox"><span>Move active &amp; unread threads to top</span></label>
+      <div class="helper">Active and unread Threads come first; idle Threads follow in sidebar order. Pinned threads stay unchanged.</div>
+    </div>
+  </div>
+  <div class="item" data-tab="general">
     <label for="queue-badge">Queue Badge</label>
     <label class="toggle"><input id="queue-badge" type="checkbox"><span>Show queued messages</span></label>
   </div>
@@ -292,6 +299,7 @@
   <script>
     const source = document.querySelector("#task-source");
     const position = document.querySelector("#task-position");
+    const moveActiveUnreadThreads = document.querySelector("#move-active-unread-threads");
     const queueBadge = document.querySelector("#queue-badge");
     const goalBadge = document.querySelector("#goal-badge");
     const badgePosition = document.querySelector("#badge-position");
@@ -389,6 +397,7 @@
     FingertipPI.onSettings((settings) => {
       source.value = settings.taskSource;
       position.value = String(settings.taskPosition);
+      moveActiveUnreadThreads.checked = settings.moveActiveUnreadThreadsToTop;
       queueBadge.checked = settings.showQueueBadge;
       goalBadge.checked = settings.showGoalBadge;
       badgePosition.value = settings.badgePosition;
@@ -449,6 +458,7 @@
       FingertipPI.setSetting("taskPosition", taskPosition);
     });
     source.addEventListener("change", () => FingertipPI.setSetting("taskSource", source.value));
+    moveActiveUnreadThreads.addEventListener("change", () => FingertipPI.setSetting("moveActiveUnreadThreadsToTop", moveActiveUnreadThreads.checked));
     queueBadge.addEventListener("change", () => FingertipPI.setSetting("showQueueBadge", queueBadge.checked));
     goalBadge.addEventListener("change", () => FingertipPI.setSetting("showGoalBadge", goalBadge.checked));
     badgePosition.addEventListener("change", () => FingertipPI.setSetting("badgePosition", badgePosition.value));

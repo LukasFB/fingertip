@@ -11,6 +11,10 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(html.includes('id="task-source"'), true);
   assert.equal(html.includes('value="pinned-projects"'), true);
   assert.equal(html.includes('value="tasks"'), true);
+  assert.equal(html.includes('id="move-active-unread-threads" type="checkbox"'), true);
+  assert.equal(html.includes("Move active &amp; unread threads to top"), true);
+  assert.equal(html.includes("Active and unread Threads come first"), true);
+  assert.equal(html.includes("Pinned threads stay unchanged."), true);
   assert.equal(html.includes('id="window-target"'), true);
   for (const target of ["last-active", "leftmost", "rightmost"]) {
     assert.equal(html.includes(`value="${target}"`), true);
@@ -231,19 +235,26 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const local = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(local?.event, "setSettings");
   assert.deepEqual(local?.payload, {
-    version: 7,
+    version: 9,
     taskPosition: 7,
     taskSource: "tasks",
+    moveActiveUnreadThreadsToTop: false,
   });
 
   api.setSetting("taskSource", "pinned-projects");
   const source = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(source?.event, "setSettings");
   assert.deepEqual(source?.payload, {
-    version: 7,
+    version: 9,
     taskPosition: 7,
     taskSource: "pinned-projects",
+    moveActiveUnreadThreadsToTop: false,
   });
+
+  api.setSetting("moveActiveUnreadThreadsToTop", true);
+  const moveActive = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
+  assert.equal(moveActive?.event, "setSettings");
+  assert.equal(moveActive?.payload?.moveActiveUnreadThreadsToTop, true);
 
   api.setSetting("showQueueBadge", true);
   const queueBadge = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;

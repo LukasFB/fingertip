@@ -9,6 +9,7 @@ export interface CatalogTask {
   readonly activityAt: number;
   readonly title: string;
   readonly source: CatalogTaskSource;
+  readonly pinned?: true;
   readonly projectLabel?: string;
 }
 
@@ -34,14 +35,30 @@ export function buildTaskFeed(
     const id = parseTaskId(task.id);
     const resolvedLabel = resolveProjectLabel({ id, cwd: task.cwd }, metadata);
     const projectLabel = resolvedLabel === undefined ? undefined : boundedProjectLabel(resolvedLabel);
-    const source: CatalogTaskSource = sourceMetadata.pinnedTaskIds.includes(id)
+    const pinned = sourceMetadata.pinnedTaskIds.includes(id);
+    const source: CatalogTaskSource = pinned
       || resolveProjectRoot({ id, cwd: task.cwd }, sourceMetadata) !== undefined
       ? "pinned-projects"
       : "tasks";
     const activityAt = task.recencyAt ?? task.createdAt;
     return projectLabel === undefined
-      ? Object.freeze({ id, createdAt: task.createdAt, activityAt, title: task.title, source })
-      : Object.freeze({ id, createdAt: task.createdAt, activityAt, title: task.title, source, projectLabel });
+      ? Object.freeze({
+        id,
+        createdAt: task.createdAt,
+        activityAt,
+        title: task.title,
+        source,
+        ...(pinned ? { pinned: true as const } : {}),
+      })
+      : Object.freeze({
+        id,
+        createdAt: task.createdAt,
+        activityAt,
+        title: task.title,
+        source,
+        ...(pinned ? { pinned: true as const } : {}),
+        projectLabel,
+      });
   }));
 }
 
@@ -49,8 +66,9 @@ export function taskAtPosition(
   feed: readonly CatalogTask[],
   position: number,
   source?: CatalogTaskSource,
+  include: (task: CatalogTask) => boolean = () => true,
 ): CatalogTask | null {
   if (!Number.isInteger(position) || position < 1 || position > 99) return null;
-  const selected = source === undefined ? feed : feed.filter((task) => task.source === source);
+  const selected = feed.filter((task) => (source === undefined || task.source === source) && include(task));
   return selected[position - 1] ?? null;
 }

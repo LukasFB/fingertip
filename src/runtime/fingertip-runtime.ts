@@ -8,7 +8,7 @@ import {
   AppServerProtocolError,
 } from "../catalog/app-server-catalog-client.ts";
 import { parseTaskId, type TaskId } from "../catalog/catalog-projection.ts";
-import { taskAtPosition } from "../catalog/task-feed.ts";
+import { type CatalogTask } from "../catalog/task-feed.ts";
 import { CatalogCompatibilityTracker } from "../catalog/catalog-compatibility.ts";
 import { readWorkspaceMetadata } from "../catalog/global-state-reader.ts";
 import { watchWorkspaceMetadataFile } from "../catalog/global-state-watcher.ts";
@@ -40,6 +40,7 @@ import { createKeySnapshot, type KeySnapshot } from "./key-snapshot.ts";
 import type { DesktopState } from "./key-presentation.ts";
 import { TaskKeyRegistry, type TaskKeyActionPort } from "./task-key-registry.ts";
 import { renderSnapshotDataUrl } from "./task-key-render-queue.ts";
+import { needsTaskStatusHydration, taskAtPositionForKey } from "./task-selection.ts";
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const IPC_RETRY_DELAY_MS = 60_000;
@@ -734,7 +735,7 @@ export class FingertipRuntime {
       return;
     }
     for (const entry of this.#registry.entries()) {
-      const task = taskAtPosition(feed, entry.settings.taskPosition, entry.settings.taskSource);
+      const task = this.#taskForSettings(entry.settings, feed);
       if (task !== null) taskIds.add(parseTaskId(task.id));
     }
     const next = new Map<string, boolean>();
@@ -762,7 +763,7 @@ export class FingertipRuntime {
     if (feed === null) return [];
     const taskIds = new Set<TaskId>();
     for (const entry of this.#registry.entries()) {
-      const task = taskAtPosition(feed, entry.settings.taskPosition, entry.settings.taskSource);
+      const task = this.#taskForSettings(entry.settings, feed);
       if (task !== null) taskIds.add(parseTaskId(task.id));
     }
     return [...taskIds];
@@ -772,11 +773,29 @@ export class FingertipRuntime {
     const feed = this.#catalogView.feed;
     if (feed === null || this.#options.desktopIpc.state !== "online") return;
     const taskIds = new Set<TaskId>();
-    for (const entry of this.#registry.entries()) {
-      const task = taskAtPosition(feed, entry.settings.taskPosition, entry.settings.taskSource);
-      if (task !== null) taskIds.add(parseTaskId(task.id));
+    const entries = this.#registry.entries();
+    const hydrationSources = new Set(entries
+      .filter((entry) => needsTaskStatusHydration(entry.settings))
+      .map((entry) => entry.settings.taskSource));
+    if (hydrationSources.size > 0) {
+      for (const task of feed) {
+        if (hydrationSources.has(task.source)) taskIds.add(parseTaskId(task.id));
+      }
+    } else {
+      for (const entry of entries) {
+        const task = this.#taskForSettings(entry.settings, feed);
+        if (task !== null) taskIds.add(parseTaskId(task.id));
+      }
     }
     void this.#options.desktopIpc.hydrateTaskIds?.(taskIds);
+  }
+
+  #taskForSettings(settings: TaskKeySettings, feed: readonly CatalogTask[]): CatalogTask | null {
+    return taskAtPositionForKey(feed, settings, {
+      catalogState: this.#catalogView.state,
+      desktopState: this.#desktopState,
+      liveByTaskId: this.#displayLiveRecords(),
+    });
   }
 
   #queueTaskChangeRefresh(immediate: boolean): void {

@@ -65,6 +65,8 @@ test("Pinned projectless Tasks share one source with project Tasks while regular
     ["Project", "pinned-projects"],
     ["Standalone", "tasks"],
   ]);
+  assert.equal(feed[0]?.pinned, true);
+  assert.equal(feed[1]?.pinned, undefined);
   assert.equal(taskAtPosition(feed, 2, "pinned-projects")?.title, "Project");
   assert.equal(taskAtPosition(feed, 1, "tasks")?.title, "Standalone");
 });

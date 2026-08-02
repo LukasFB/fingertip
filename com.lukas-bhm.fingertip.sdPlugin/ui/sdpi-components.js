@@ -5,9 +5,10 @@
   let context;
   let action;
   const localDefaults = Object.freeze({
-    version: 7,
+    version: 9,
     taskPosition: 1,
     taskSource: "pinned-projects",
+    moveActiveUnreadThreadsToTop: false,
   });
   const appearanceDefaults = Object.freeze({
     version: 13,
@@ -57,9 +58,11 @@
       ? source.taskPosition : localDefaults.taskPosition;
     const taskSource = source.taskSource === "tasks" ? "tasks" : "pinned-projects";
     return {
-      version: 7,
+      version: 9,
       taskPosition,
       taskSource,
+      moveActiveUnreadThreadsToTop: source.moveActiveUnreadThreadsToTop === true
+        || (source.moveActiveUnreadThreadsToTop === undefined && source.skipSettledProjectTasks === true),
     };
   }
 
@@ -162,7 +165,7 @@
     onSettings(listener) { settingsListeners.add(listener); listener({ ...localSettings, ...appearance }); },
     onState(listener) { stateListeners.add(listener); },
     setSetting(key, value) {
-      if (key === "taskPosition" || key === "taskSource") {
+      if (key === "taskPosition" || key === "taskSource" || key === "moveActiveUnreadThreadsToTop") {
         localSettings = normalizedLocal({ ...localSettings, [key]: value });
         send({ event: "setSettings", context, payload: localSettings });
       } else {

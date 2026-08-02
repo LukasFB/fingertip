@@ -12,9 +12,10 @@ import {
 
 test("missing Task Key settings use the documented defaults", () => {
   assert.deepEqual(normalizeTaskKeySettings(undefined), {
-    version: 7,
+    version: 9,
     taskPosition: 1,
     taskSource: "pinned-projects",
+    moveActiveUnreadThreadsToTop: false,
   });
 });
 
@@ -22,9 +23,10 @@ test("Task Position is preserved while former per-key appearance fields are disc
   assert.deepEqual(
     normalizeTaskKeySettings({ version: 2, taskPosition: 99, titleFontSize: 8, idleColor: "#abcdef" }),
     {
-      version: 7,
+      version: 9,
       taskPosition: 99,
       taskSource: "pinned-projects",
+      moveActiveUnreadThreadsToTop: false,
     },
   );
 });
@@ -36,6 +38,8 @@ test("invalid Task Positions use the default independently", () => {
   assert.equal(normalizeTaskKeySettings({ taskPosition: 42 }).taskPosition, 42);
   assert.equal(normalizeTaskKeySettings({ taskSource: "tasks" }).taskSource, "tasks");
   assert.equal(normalizeTaskKeySettings({ taskSource: "unknown" }).taskSource, "pinned-projects");
+  assert.equal(normalizeTaskKeySettings({ moveActiveUnreadThreadsToTop: true }).moveActiveUnreadThreadsToTop, true);
+  assert.equal(normalizeTaskKeySettings({ moveActiveUnreadThreadsToTop: "true" }).moveActiveUnreadThreadsToTop, false);
 });
 
 test("only exact normalized local settings avoid a writeback", () => {
@@ -43,6 +47,22 @@ test("only exact normalized local settings avoid a writeback", () => {
   assert.equal(taskKeySettingsNeedWriteback(exact), false);
   assert.equal(taskKeySettingsNeedWriteback({ version: 2, taskPosition: 2 }), true);
   assert.equal(taskKeySettingsNeedWriteback({ ...exact, extra: true }), true);
+});
+
+test("the former settled-project setting migrates to active and unread ordering", () => {
+  const migrated = normalizeTaskKeySettings({
+    version: 8,
+    taskPosition: 2,
+    taskSource: "pinned-projects",
+    skipSettledProjectTasks: true,
+  });
+  assert.equal(migrated.moveActiveUnreadThreadsToTop, true);
+  assert.equal(taskKeySettingsNeedWriteback({
+    version: 8,
+    taskPosition: 2,
+    taskSource: "pinned-projects",
+    skipSettledProjectTasks: true,
+  }), true);
 });
 
 test("missing global appearance uses quiet idle and Codex Micro status colors", () => {

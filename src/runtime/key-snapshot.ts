@@ -1,5 +1,5 @@
 import { parseTaskId, type TaskId } from "../catalog/catalog-projection.ts";
-import { taskAtPosition, type CatalogTask } from "../catalog/task-feed.ts";
+import type { CatalogTask } from "../catalog/task-feed.ts";
 import type { TaskKeyAppearanceSettings, TaskKeySettings } from "../settings/task-key-settings.ts";
 import type { TaskStatus } from "../status/task-status-projector.ts";
 import { formatTaskActivityTime } from "../rendering/relative-task-time.ts";
@@ -10,6 +10,7 @@ import {
   type DesktopState,
   type LiveFreshness,
 } from "./key-presentation.ts";
+import { taskAtPositionForKey } from "./task-selection.ts";
 
 interface NonTaskKeySnapshot {
   readonly kind: "loading" | "unavailable" | "empty";
@@ -69,7 +70,11 @@ export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
   }
   const task = input.catalog.feed === null
     ? null
-    : taskAtPosition(input.catalog.feed as readonly CatalogTask[], input.settings.taskPosition, input.settings.taskSource);
+    : taskAtPositionForKey(input.catalog.feed as readonly CatalogTask[], input.settings, {
+      catalogState: input.catalog.state,
+      desktopState: input.desktopState,
+      liveByTaskId: input.liveByTaskId,
+    });
   const live = task === null
     ? null
     : input.liveByTaskId.get(task.id) ?? { freshness: "none" as const, status: null };
