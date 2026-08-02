@@ -11,10 +11,18 @@ straight to the exact task you need with one key press.
 - Live keys for Idle, Working, Done, Waiting, and Approval Required states.
 - Animated working and transition feedback, with configurable shared state
   colors, typography, alignment, and borders.
+- Project-colored title bars with deterministic shades per project, adjustable
+  opacity for blending with the current status color, and automatic
+  contrast-aware black or white text.
+- Project bars scale with the project-name font and keep the title vertically
+  centered with balanced padding.
 - Separate `Pinned + Projects` and `Tasks` sources that follow ChatGPT's
   sidebar order.
 - One-key navigation to the exact matching Codex task, with a choice of the
-  last-active, leftmost, or rightmost ChatGPT window.
+  last-active, leftmost, or rightmost ChatGPT window. Active tasks can open a
+  fresh ChatGPT conversation when needed.
+- Single press opens a task, double press highlights it, and long press marks
+  it unread.
 - Optional task-owned line-change statistics plus queue and ongoing-goal
   badges with configurable placement and size.
 - Shared settings organized into General, Appearance, Notifications, and
@@ -22,7 +30,8 @@ straight to the exact task you need with one key press.
 - Independent notifications when a task enters Done or Approval Required:
   `Off`, `Toast`, `Audio`, or `Both`.
 - macOS system-sound presets or a custom audio file for each transition, with
-  a test-play button and independent volume controls.
+  a test-play button, independent volume controls, repeat counts, and repeat
+  delays.
 
 ![General settings](marketplace-assets/gallery-4-settings-general.png)
 
@@ -58,12 +67,13 @@ or give your coding agent this prompt from the repository directory:
 Add or select a Codex Task key in Stream Deck:
 
 - **General** selects the sidebar source, one-based task position, badges, and
-  target ChatGPT window.
-- **Appearance** controls shared key colors, fonts, alignment, borders, project
-  bar colors, and line-change statistics.
+  target ChatGPT window, including the active-task conversation behavior.
+- **Appearance** controls shared key colors, fonts, alignment, borders,
+  deterministic project bar colors, project-color opacity, and line-change
+  statistics.
 - **Notif.** configures Done and Approval Required notifications independently.
   Audio and Both modes expose the sound source, system preset or custom-file
-  picker, test-play control, and volume.
+  picker, test-play control, volume, repeat count, and repeat delay.
 - **Status** shows the current key preview, connection diagnostics, component
   versions, and a manual reconnect action.
 
@@ -83,14 +93,17 @@ npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 Use `npm run reload` to build and restart the linked plugin during local
 development.
 
-## Version 1.0.2
+## Version 1.0.3
 
-- Added tabbed settings for a roomier Property Inspector.
-- Added independent Done and Approval Required notifications.
-- Added Toast, Audio, and combined Both notification modes.
-- Added macOS system sounds, custom audio import, test playback, and volume.
-- Added shared appearance controls, task change statistics, and queue/goal
-  badges.
+- Added deterministic project-colored title bars with configurable opacity,
+  dynamic status-color mixing, and contrast-aware text.
+- Made project-bar height follow the project-name font size and vertically
+  centered the title with balanced padding.
+- Added single-, double-, and long-press task gestures for opening,
+  highlighting, and marking tasks unread.
+- Added repeat count and delay controls for Done and Approval Required audio
+  notifications.
+- Updated the release metadata and documentation for 1.0.3.
 
 ## Compatibility and privacy
 
