@@ -396,10 +396,10 @@ export function renderKeySvg(model: KeyRenderModel): string {
     <rect x="4" y="4" width="136" height="136" rx="16" fill="url(#highlight)"/>
   </g>
   <g clip-path="url(#key)">
-    ${hasProject ? `<rect x="4" y="4" width="136" height="${projectBarHeight}" fill="${projectBar}"/>` : ""}
     ${isWorkingNoise ? `<rect data-animation="working-noise" x="4" y="4" width="136" height="136" rx="16" fill="url(#workingNoise)" fill-opacity="0.72"/>` : ""}
     ${animated && !isWorkingNoise && !isDoneBurst ? `<rect data-animation="status-flash" x="4" y="4" width="136" height="136" rx="16" fill="${animationTint}" fill-opacity="${animationFillOpacity}" stroke="${animationTint}" stroke-opacity="${animationStrokeOpacity}" stroke-width="${animationStrokeWidth}"/>` : ""}
     ${isDoneBurst ? `<g data-animation="done-burst"><rect x="4" y="4" width="136" height="136" rx="16" fill="${animationTint}" fill-opacity="${animationFillOpacity}"/><circle cx="72" cy="72" r="${compactDecimal(burstRadius)}" fill="none" stroke="${animationTint}" stroke-width="${animationStrokeWidth}" stroke-opacity="${animationStrokeOpacity}"/>${burstSparkles}</g>` : ""}
+    ${hasProject ? `<rect x="4" y="4" width="136" height="${projectBarHeight}" fill="${projectBar}"/>` : ""}
     ${showTaskChangeFooter ? `<rect data-footer="task-changes" x="4" y="116" width="136" height="24" fill="${taskChangeFooterBar}"/>` : ""}
     ${hasProject ? renderTextLines(projectLines, textPosition.x, textPosition.anchor, projectTextBaseline, 0, projectFont, 650, projectForeground) : ""}
     ${renderTextLines(titleLines, textPosition.x, textPosition.anchor, titleFirstBaseline, lineHeight, font, 700, foreground)}

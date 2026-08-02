@@ -355,6 +355,28 @@ test("project bar colors are deterministic and can be mixed back into the status
   assert.equal(projectOnly.includes('font-size="16" font-weight="650" fill="#f7f9fc">Fingertip</text>'), true);
 });
 
+test("project bar stays above the active working animation for reliable contrast", () => {
+  const svg = renderKeySvg({
+    kind: "task",
+    taskPosition: 1,
+    titleFontSize: 10,
+    projectFontSize: 8,
+    projectLabel: "fingertip",
+    title: "Active Task",
+    status: "working",
+    projectColorEnabled: true,
+    projectColorOpacity: 60,
+    animation: { kind: "working-noise", intensity: 1, phase: 0.5 },
+    offlineWarning: false,
+  });
+  const workingAnimationIndex = svg.indexOf('data-animation="working-noise"');
+  const projectBar = svg.match(/height="22" fill="(#[0-9a-f]{6})"/u)?.[1];
+  assert.ok(workingAnimationIndex >= 0);
+  assert.ok(projectBar);
+  assert.ok(svg.indexOf(`height="22" fill="${projectBar}"`) > workingAnimationIndex);
+  assert.equal(svg.includes('font-size="16" font-weight="650" fill="#f7f9fc">fingertip</text>'), true);
+});
+
 test("project bar height follows project font size with three pixels of vertical padding", () => {
   const render = (projectFontSize: number): string => renderKeySvg({
     kind: "task",
