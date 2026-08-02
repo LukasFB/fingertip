@@ -179,6 +179,25 @@ export class ChatGptDesktopIpcAdapter {
     return () => this.#activeTaskListeners.delete(listener);
   }
 
+  waitUntilTaskInactive(taskId: TaskId, timeoutMs: number): Promise<boolean> {
+    if (this.#activeTaskId !== taskId) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (inactive: boolean): void => {
+        if (settled) return;
+        settled = true;
+        this.#options.clearTimer(timer);
+        this.#activeTaskListeners.delete(onActiveTask);
+        resolve(inactive);
+      };
+      const onActiveTask = (activeTaskId: TaskId | null): void => {
+        if (activeTaskId !== taskId) finish(true);
+      };
+      const timer = this.#options.setTimer(() => finish(false), timeoutMs);
+      this.#activeTaskListeners.add(onActiveTask);
+    });
+  }
+
   setCatalogTaskIds(taskIds: ReadonlySet<TaskId>): void {
     this.#catalogTaskIds = new Set(taskIds);
   }
@@ -190,6 +209,31 @@ export class ChatGptDesktopIpcAdapter {
   selectActiveTask(taskId: TaskId): void {
     this.#setActiveTask(taskId);
     this.#reconcileFollowing();
+  }
+
+  markTaskUnread(taskId: TaskId): boolean {
+    if (this.#state !== "online" || this.#clientId === null) return false;
+    try {
+      this.#write({
+        type: "broadcast",
+        method: "thread-read-state-changed",
+        version: 2,
+        sourceClientId: this.#clientId,
+        params: { conversationId: taskId, hostId: "local", hasUnreadTurn: true },
+      });
+      const current = this.#owners.get(taskId);
+      if (current !== undefined) {
+        const projection = applyStatusPatches(current.projection, [{
+          op: "replace",
+          path: ["hasUnreadTurn"],
+          value: true,
+        }]);
+        this.#publish(taskId, current.ownerClientId, current.revision, projection);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async hydrateTaskIds(taskIds: Iterable<TaskId>): Promise<void> {

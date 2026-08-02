@@ -2,6 +2,7 @@ import {
   action,
   type DidReceiveSettingsEvent,
   type KeyDownEvent,
+  type KeyUpEvent,
   type PropertyInspectorDidAppearEvent,
   type PropertyInspectorDidDisappearEvent,
   type SendToPluginEvent,
@@ -78,7 +79,11 @@ export class TaskKeyAction extends SingletonAction<PersistedTaskKeySettings> {
   }
 
   override async onKeyDown(event: KeyDownEvent<PersistedTaskKeySettings>): Promise<void> {
-    await this.#runtime.press(event.action.id);
+    this.#runtime.keyDown(event.action.id);
+  }
+
+  override async onKeyUp(event: KeyUpEvent<PersistedTaskKeySettings>): Promise<void> {
+    await this.#runtime.keyUp(event.action.id);
   }
 
   override onPropertyInspectorDidAppear(event: PropertyInspectorDidAppearEvent<PersistedTaskKeySettings>): void {

@@ -101,6 +101,26 @@ test("changing a state color invalidates the render signature", () => {
   assert.notEqual(defaultSnapshot.renderSignature, customizedSnapshot.renderSignature);
 });
 
+test("a local highlight follows its Task and invalidates the render signature", () => {
+  const taskId = "00000000-0000-4000-8000-000000000100";
+  const input = {
+    settings,
+    appearance,
+    now,
+    catalog: {
+      state: "fresh" as const,
+      feed: [{ id: taskId, createdAt: 100, activityAt: 100, title: "Highlighted", source: "pinned-projects" as const }],
+    },
+    desktopState: "online" as const,
+    liveByTaskId: new Map(),
+  };
+  const regular = createKeySnapshot(input);
+  const highlighted = createKeySnapshot({ ...input, highlightedTaskIds: new Set([taskId]) });
+
+  assert.equal(highlighted.kind === "task" ? highlighted.highlighted : undefined, true);
+  assert.notEqual(regular.renderSignature, highlighted.renderSignature);
+});
+
 test("Task Change Stats replace only the Task footer when the shared option is enabled", () => {
   const taskId = "00000000-0000-4000-8000-000000000100";
   const snapshot = createKeySnapshot({

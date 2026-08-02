@@ -56,6 +56,27 @@ test("navigation does not wait for the best-effort activation request", async ()
   assert.equal(calls.length, 2);
 });
 
+test("new-chat navigation targets ChatGPT and invokes its native command-N command", async () => {
+  const calls: unknown[][] = [];
+  const spawn: SpawnProcess = (command, args, options) => {
+    calls.push([command, args, options]);
+    const child = new FakeChild();
+    queueMicrotask(() => child.emit("exit", 0, null));
+    return child;
+  };
+
+  assert.equal(await new ChatGptNavigationPort({ spawn }).openNewChat(), true);
+  assert.deepEqual(calls[0], [
+    "/usr/bin/open",
+    ["-b", "com.openai.codex"],
+    { shell: false, stdio: "ignore" },
+  ]);
+  assert.equal(calls[1]?.[0], "/usr/bin/osascript");
+  const script = (calls[1]?.[1] as readonly string[] | undefined)?.[1] ?? "";
+  assert.match(script, /bundle identifier is "com\.openai\.codex"/u);
+  assert.match(script, /keystroke "n" using command down/u);
+});
+
 test("navigation focuses the selected physical ChatGPT window before opening the Task", async () => {
   const taskId = parseTaskId("00000000-0000-4000-8000-000000000001");
   assert.ok(taskId);

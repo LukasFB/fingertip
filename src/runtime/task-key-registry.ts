@@ -39,6 +39,11 @@ export class TaskKeyRegistry {
     return this.#entries.get(actionId) ?? null;
   }
 
+  displayedTaskId(actionId: string): TaskId | null {
+    const snapshot = this.#entries.get(actionId)?.queue.displayedSnapshot;
+    return snapshot?.kind === "task" ? snapshot.taskId : null;
+  }
+
   upsert(action: TaskKeyActionPort, settings: TaskKeySettings): RegisteredTaskKey {
     const existing = this.#entries.get(action.id);
     if (existing !== undefined) {
@@ -75,13 +80,22 @@ export class TaskKeyRegistry {
   async press(actionId: string, navigation: TaskNavigationPort): Promise<TaskId | null> {
     const entry = this.#entries.get(actionId);
     const displayed = entry?.queue.displayedSnapshot ?? null;
-    if (entry === undefined || displayed?.kind !== "task") {
+    return this.pressTask(actionId, displayed?.kind === "task" ? displayed.taskId : null, navigation);
+  }
+
+  async pressTask(
+    actionId: string,
+    taskId: TaskId | null,
+    navigation: TaskNavigationPort,
+  ): Promise<TaskId | null> {
+    const entry = this.#entries.get(actionId);
+    if (entry === undefined || taskId === null) {
       await entry?.action.showAlert().catch(() => undefined);
       return null;
     }
-    const launched = await navigation.openTask(displayed.taskId);
+    const launched = await navigation.openTask(taskId);
     entry.navigationFailed = !launched;
     if (!launched) await entry.action.showAlert().catch(() => undefined);
-    return launched ? displayed.taskId : null;
+    return launched ? taskId : null;
   }
 }

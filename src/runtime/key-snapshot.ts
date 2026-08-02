@@ -32,6 +32,7 @@ export interface TaskKeySnapshot {
   readonly taskChangeStats?: TaskChangeStats;
   readonly queuedMessageCount?: number;
   readonly hasOngoingGoal?: true;
+  readonly highlighted?: true;
   readonly liveFreshness: LiveFreshness;
   readonly offlineWarning: boolean;
   readonly pressTarget: `codex://threads/${string}`;
@@ -57,6 +58,7 @@ export interface KeySnapshotInput {
   readonly taskChangeStatsByTaskId?: ReadonlyMap<string, TaskChangeStats>;
   readonly ongoingGoalByTaskId?: ReadonlyMap<string, boolean>;
   readonly queuedFollowUpCountByTaskId?: ReadonlyMap<string, number>;
+  readonly highlightedTaskIds?: ReadonlySet<string>;
 }
 
 export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
@@ -112,6 +114,7 @@ export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
     ? candidateQueuedMessageCount : undefined;
   const hasOngoingGoal = input.appearance.showGoalBadge
     && input.ongoingGoalByTaskId?.get(id) === true;
+  const highlighted = input.highlightedTaskIds?.has(id) === true;
   const hasBadges = queuedMessageCount !== undefined || hasOngoingGoal;
   const signatureFields = {
     kind: "task",
@@ -127,6 +130,7 @@ export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
     taskChangeStats,
     queuedMessageCount,
     ...(hasOngoingGoal ? { hasOngoingGoal: true } : {}),
+    ...(highlighted ? { highlighted: true } : {}),
     ...(hasBadges ? { badgePosition: input.appearance.badgePosition } : {}),
     offline: presentation.offlineWarning,
   };
@@ -141,6 +145,7 @@ export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
     ...(taskChangeStats === undefined ? {} : { taskChangeStats }),
     ...(queuedMessageCount === undefined ? {} : { queuedMessageCount }),
     ...(hasOngoingGoal ? { hasOngoingGoal: true as const } : {}),
+    ...(highlighted ? { highlighted: true as const } : {}),
     liveFreshness: live.freshness,
     offlineWarning: presentation.offlineWarning,
     pressTarget: `codex://threads/${id}` as const,

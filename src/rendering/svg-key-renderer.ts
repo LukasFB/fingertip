@@ -33,6 +33,7 @@ export interface KeyRenderModel {
   readonly taskChangeStats?: TaskChangeStats;
   readonly queuedMessageCount?: number;
   readonly hasOngoingGoal?: boolean;
+  readonly highlighted?: boolean;
   readonly badgePosition?: TaskKeyBadgePosition;
   readonly badgeFontSize?: number;
   readonly colors?: TaskKeyColors;
@@ -384,6 +385,10 @@ export function renderKeySvg(model: KeyRenderModel): string {
       <feDropShadow dx="0" dy="0" stdDeviation="${glowDeviation}" flood-color="${animationAccent}" flood-opacity="${glowOpacity}"/>
       <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#000000" flood-opacity="0.32"/>
     </filter>
+    <filter id="markerGlow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#7ff3ff" flood-opacity="1"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#18c8ff" flood-opacity="0.9"/>
+    </filter>
     <clipPath id="key"><rect x="4" y="4" width="136" height="136" rx="16"/></clipPath>
   </defs>
   <g filter="url(#glow)">
@@ -402,6 +407,7 @@ export function renderKeySvg(model: KeyRenderModel): string {
     ${badges}
   </g>
   ${model.borderEnabled !== false ? `<rect x="5" y="5" width="134" height="134" rx="15" fill="none" stroke="${statusProjectBar}" stroke-width="2"/>` : ""}
+  ${model.kind === "task" && model.highlighted === true ? `<g data-highlighted="true" filter="url(#markerGlow)"><rect x="3.5" y="3.5" width="137" height="137" rx="17" fill="none" stroke="#28d7ff" stroke-width="3"/><rect x="7.5" y="7.5" width="129" height="129" rx="13" fill="none" stroke="#d8fbff" stroke-width="1.5"/></g>` : ""}
 </svg>`;
 }
 

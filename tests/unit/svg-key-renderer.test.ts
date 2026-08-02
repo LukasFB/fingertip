@@ -371,3 +371,21 @@ test("project bar height follows project font size with three pixels of vertical
   assert.equal(render(8).includes('height="22"'), true);
   assert.equal(render(12).includes('height="30"'), true);
 });
+
+test("a highlighted Task keeps a bright double frame across status colors", () => {
+  for (const status of ["idle", "working", "waiting", "confirmation", "done"] as const) {
+    const svg = renderKeySvg({
+      kind: "task",
+      taskPosition: 1,
+      titleFontSize: 10,
+      projectFontSize: 8,
+      title: "Find me",
+      status,
+      highlighted: true,
+      offlineWarning: status === "waiting",
+    });
+    assert.equal(svg.includes('data-highlighted="true"'), true);
+    assert.equal(svg.includes('stroke="#28d7ff"'), true);
+    assert.equal(svg.includes('stroke="#d8fbff"'), true);
+  }
+});

@@ -45,6 +45,10 @@ const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const IPC_RETRY_DELAY_MS = 60_000;
 const DESKTOP_WARNING_GRACE_MS = 2_500;
 const TASK_CHANGE_REFRESH_MS = 45_000;
+export const KEY_HOLD_THRESHOLD_MS = 600;
+export const KEY_DOUBLE_TAP_WINDOW_MS = 300;
+export const TASK_HIGHLIGHT_DURATION_MS = 15 * 60 * 1_000;
+export const UNREAD_NAVIGATION_TIMEOUT_MS = 1_000;
 
 interface PropertyInspectorPort {
   send(payload: JsonValue): Promise<void>;
@@ -129,6 +133,14 @@ export class FingertipRuntime {
   #taskChangeTimer: ReturnType<typeof setTimeout> | null = null;
   #taskChangeRefreshing = false;
   #ongoingGoalByTaskId = new Map<string, boolean>();
+  readonly #keyHoldTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  readonly #heldActionIds = new Set<string>();
+  readonly #keyDownTaskIds = new Map<string, TaskId | null>();
+  readonly #pendingTapTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  readonly #pendingTapTaskIds = new Map<string, TaskId | null>();
+  readonly #doubleTapTaskIds = new Map<string, TaskId | null>();
+  readonly #highlightedTaskIds = new Set<TaskId>();
+  readonly #highlightExpiryTimers = new Map<TaskId, ReturnType<typeof setTimeout>>();
 
   constructor(options: Partial<RuntimeOptions> & Pick<RuntimeOptions, "propertyInspector">) {
     this.#options = {
@@ -220,8 +232,53 @@ export class FingertipRuntime {
   }
 
   detachAction(actionId: string): void {
+    this.#clearKeyHold(actionId);
+    this.#clearPendingTap(actionId);
+    this.#keyDownTaskIds.delete(actionId);
+    this.#doubleTapTaskIds.delete(actionId);
     this.#registry.remove(actionId);
     this.#scheduleShutdownIfUnused();
+  }
+
+  keyDown(actionId: string): void {
+    this.#clearKeyHold(actionId);
+    this.#heldActionIds.delete(actionId);
+    const taskId = this.#registry.displayedTaskId(actionId);
+    this.#keyDownTaskIds.set(actionId, taskId);
+    if (this.#pendingTapTimers.has(actionId)) {
+      const firstTapTaskId = this.#pendingTapTaskIds.get(actionId) ?? null;
+      this.#clearPendingTap(actionId);
+      this.#doubleTapTaskIds.set(actionId, firstTapTaskId);
+    }
+    const timer = this.#options.setTimer(() => {
+      this.#keyHoldTimers.delete(actionId);
+      this.#heldActionIds.add(actionId);
+      const gestureTaskId = this.#doubleTapTaskIds.get(actionId) ?? taskId;
+      this.#doubleTapTaskIds.delete(actionId);
+      void this.#markUnread(actionId, gestureTaskId);
+    }, KEY_HOLD_THRESHOLD_MS);
+    this.#keyHoldTimers.set(actionId, timer);
+  }
+
+  async keyUp(actionId: string): Promise<void> {
+    const held = this.#heldActionIds.delete(actionId);
+    const taskId = this.#keyDownTaskIds.get(actionId) ?? null;
+    this.#keyDownTaskIds.delete(actionId);
+    this.#clearKeyHold(actionId);
+    if (held) return;
+    if (this.#doubleTapTaskIds.has(actionId)) {
+      const doubleTapTaskId = this.#doubleTapTaskIds.get(actionId) ?? null;
+      this.#doubleTapTaskIds.delete(actionId);
+      await this.#toggleHighlight(actionId, doubleTapTaskId);
+      return;
+    }
+    const timer = this.#options.setTimer(() => {
+      this.#pendingTapTimers.delete(actionId);
+      this.#pendingTapTaskIds.delete(actionId);
+      void this.#pressTask(actionId, taskId);
+    }, KEY_DOUBLE_TAP_WINDOW_MS);
+    this.#pendingTapTimers.set(actionId, timer);
+    this.#pendingTapTaskIds.set(actionId, taskId);
   }
 
   async press(actionId: string): Promise<void> {
@@ -315,6 +372,14 @@ export class FingertipRuntime {
     this.#options.desktopIpc.stop();
     for (const timer of this.#liveExpiryTimers.values()) this.#options.clearTimer(timer);
     this.#liveExpiryTimers.clear();
+    for (const timer of this.#keyHoldTimers.values()) this.#options.clearTimer(timer);
+    this.#keyHoldTimers.clear();
+    this.#heldActionIds.clear();
+    for (const timer of this.#pendingTapTimers.values()) this.#options.clearTimer(timer);
+    this.#pendingTapTimers.clear();
+    this.#pendingTapTaskIds.clear();
+    this.#keyDownTaskIds.clear();
+    this.#doubleTapTaskIds.clear();
     if (clearCompatibility) this.#options.desktopIpc.clearCompatibilityLatch();
     const catalogStopped = this.#catalogClient?.stop() ?? Promise.resolve();
     this.#catalogClient = null;
@@ -349,6 +414,17 @@ export class FingertipRuntime {
     this.#ipcRetryAt = null;
     for (const timer of this.#liveExpiryTimers.values()) this.#options.clearTimer(timer);
     this.#liveExpiryTimers.clear();
+    for (const timer of this.#keyHoldTimers.values()) this.#options.clearTimer(timer);
+    this.#keyHoldTimers.clear();
+    this.#heldActionIds.clear();
+    for (const timer of this.#pendingTapTimers.values()) this.#options.clearTimer(timer);
+    this.#pendingTapTimers.clear();
+    this.#pendingTapTaskIds.clear();
+    this.#keyDownTaskIds.clear();
+    this.#doubleTapTaskIds.clear();
+    for (const timer of this.#highlightExpiryTimers.values()) this.#options.clearTimer(timer);
+    this.#highlightExpiryTimers.clear();
+    this.#highlightedTaskIds.clear();
     this.#catalogClient?.stop();
     this.#catalogClient = null;
     this.#catalogService = null;
@@ -366,6 +442,66 @@ export class FingertipRuntime {
     this.#catalogCompatibility.clearFailures();
     this.#taskChangeStatsByTaskId.clear();
     this.#ongoingGoalByTaskId.clear();
+  }
+
+  async #markUnread(actionId: string, taskId: TaskId | null): Promise<void> {
+    const entry = this.#registry.get(actionId);
+    if (taskId === null) {
+      await entry?.action.showAlert().catch(() => undefined);
+      return;
+    }
+    if (this.#options.desktopIpc.activeTaskId === taskId) {
+      const opened = await this.#options.navigation.openNewChat();
+      if (!opened) {
+        await entry?.action.showAlert().catch(() => undefined);
+        return;
+      }
+      await this.#options.desktopIpc.waitUntilTaskInactive(taskId, UNREAD_NAVIGATION_TIMEOUT_MS);
+    }
+    if (!this.#options.desktopIpc.markTaskUnread(taskId)) {
+      await entry?.action.showAlert().catch(() => undefined);
+    }
+  }
+
+  async #toggleHighlight(actionId: string, taskId: TaskId | null): Promise<void> {
+    const entry = this.#registry.get(actionId);
+    if (taskId === null) {
+      await entry?.action.showAlert().catch(() => undefined);
+      return;
+    }
+    const existingTimer = this.#highlightExpiryTimers.get(taskId);
+    if (existingTimer !== undefined) this.#options.clearTimer(existingTimer);
+    this.#highlightExpiryTimers.delete(taskId);
+    if (this.#highlightedTaskIds.delete(taskId)) {
+      this.#renderAll();
+      return;
+    }
+    this.#highlightedTaskIds.add(taskId);
+    const timer = this.#options.setTimer(() => {
+      this.#highlightExpiryTimers.delete(taskId);
+      if (this.#highlightedTaskIds.delete(taskId)) this.#renderAll();
+    }, TASK_HIGHLIGHT_DURATION_MS);
+    this.#highlightExpiryTimers.set(taskId, timer);
+    this.#renderAll();
+  }
+
+  async #pressTask(actionId: string, taskId: TaskId | null): Promise<void> {
+    const activatedTaskId = await this.#registry.pressTask(actionId, taskId, this.#options.navigation);
+    if (activatedTaskId !== null) this.#options.desktopIpc.selectActiveTask(activatedTaskId);
+    await this.#sendPropertyInspector(actionId);
+  }
+
+  #clearKeyHold(actionId: string): void {
+    const timer = this.#keyHoldTimers.get(actionId);
+    if (timer !== undefined) this.#options.clearTimer(timer);
+    this.#keyHoldTimers.delete(actionId);
+  }
+
+  #clearPendingTap(actionId: string): void {
+    const timer = this.#pendingTapTimers.get(actionId);
+    if (timer !== undefined) this.#options.clearTimer(timer);
+    this.#pendingTapTimers.delete(actionId);
+    this.#pendingTapTaskIds.delete(actionId);
   }
 
   #ensureStarted(): void {
@@ -578,6 +714,7 @@ export class FingertipRuntime {
       now: this.#options.now(),
       taskChangeStatsByTaskId: this.#taskChangeStatsByTaskId,
       ongoingGoalByTaskId: this.#ongoingGoalByTaskId,
+      highlightedTaskIds: this.#highlightedTaskIds,
       ...(this.#catalogService === null
         ? {}
         : { queuedFollowUpCountByTaskId: this.#catalogService.queuedFollowUpCounts() }),

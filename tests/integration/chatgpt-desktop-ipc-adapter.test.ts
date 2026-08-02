@@ -254,6 +254,9 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
   const record = await withTimeout(taskEvent, () => `snapshot timeout state=${adapter.state} messages=${clientMessages.length}`);
   await discoveryReceived;
   await directReceived;
+  const unreadTaskId = parseTaskId("00000000-0000-4000-8000-000000000001");
+  assert.equal(adapter.markTaskUnread(unreadTaskId), true);
+  for (let iteration = 0; iteration < 3; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(clientMessages[0], {
     type: "request",
@@ -273,6 +276,15 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     requestId: "direct-1",
     resultType: "error",
     error: "no-handler-for-request",
+  });
+  assert.deepEqual(clientMessages.find((message) =>
+    message.type === "broadcast" && message.method === "thread-read-state-changed"
+      && (message.params as { hasUnreadTurn?: unknown } | undefined)?.hasUnreadTurn === true), {
+    type: "broadcast",
+    sourceClientId: "desktop-client",
+    version: 2,
+    method: "thread-read-state-changed",
+    params: { conversationId: unreadTaskId, hostId: "local", hasUnreadTurn: true },
   });
   assert.equal(JSON.stringify(clientMessages).includes("secret"), false);
   assert.deepEqual(records[0], {
@@ -470,6 +482,9 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     }),
   ]));
   assert.equal((await readTransition as { status: string }).status, "idle");
+  const optimisticUnreadTransition = nextRecord();
+  assert.equal(adapter.markTaskUnread(catalogTaskId), true);
+  assert.equal((await optimisticUnreadTransition as { status: string }).status, "done");
   const legacyReadTransition = nextRecord();
   activeSocketForRead.write(encodeIpcFrame({
     type: "broadcast",
@@ -582,7 +597,7 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     status: "idle",
     freshness: "fresh",
   });
-  assert.equal(records.length, 13);
+  assert.equal(records.length, 15);
 
   const recordCountBeforeOwnerHandoff = records.length;
   activeServerSocket.write(encodeIpcFrame({

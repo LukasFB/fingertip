@@ -89,6 +89,7 @@ function renderModel(snapshot: KeySnapshot, animation?: KeyAnimationEffect): Key
       ...(snapshot.taskChangeStats === undefined ? {} : { taskChangeStats: snapshot.taskChangeStats }),
       ...(snapshot.queuedMessageCount === undefined ? {} : { queuedMessageCount: snapshot.queuedMessageCount }),
       ...(snapshot.hasOngoingGoal === undefined ? {} : { hasOngoingGoal: snapshot.hasOngoingGoal }),
+      ...(snapshot.highlighted === undefined ? {} : { highlighted: snapshot.highlighted }),
       badgePosition: snapshot.appearance.badgePosition,
       badgeFontSize: snapshot.appearance.badgeFontSize,
       ...(animation === undefined ? {} : { animation }),

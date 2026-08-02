@@ -9,6 +9,10 @@ import type {
 import {
   computeRetryDelayMs,
   FingertipRuntime,
+  KEY_DOUBLE_TAP_WINDOW_MS,
+  KEY_HOLD_THRESHOLD_MS,
+  TASK_HIGHLIGHT_DURATION_MS,
+  UNREAD_NAVIGATION_TIMEOUT_MS,
   type CatalogClientLifecyclePort,
 } from "../../src/runtime/fingertip-runtime.ts";
 import { projectWorkspaceMetadata } from "../../src/catalog/project-label-resolver.ts";
@@ -195,6 +199,11 @@ test("visible Task Change footers are read from their own App Server thread", as
   }) as typeof clearTimeout;
   const taskId = "00000000-0000-4000-8000-000000000001";
   const threadReads: string[] = [];
+  const unreadTaskIds: string[] = [];
+  const navigatedTaskIds: string[] = [];
+  let newChatRequests = 0;
+  const inactiveWaits: Array<{ taskId: string; timeoutMs: number }> = [];
+  const images: string[] = [];
   const runtime = new FingertipRuntime({
     bundleResolver: {
       async resolve() {
@@ -210,12 +219,19 @@ test("visible Task Change footers are read from their own App Server thread", as
     } as ChatGptBundleResolver,
     desktopIpc: {
       state: "offline",
+      activeTaskId: taskId,
       onHealth() { return () => undefined; },
       onTaskRecord() { return () => undefined; },
       onCatalogHint() { return () => undefined; },
       setCatalogTaskIds() {},
       setCompatibilityFingerprint() {},
       clearCompatibilityLatch() {},
+      markTaskUnread(id: string) { unreadTaskIds.push(id); return true; },
+      async waitUntilTaskInactive(id: string, timeoutMs: number) {
+        inactiveWaits.push({ taskId: id, timeoutMs });
+        return true;
+      },
+      selectActiveTask() {},
       async start() {},
       stop() {},
     } as unknown as ChatGptDesktopIpcAdapter,
@@ -252,7 +268,10 @@ test("visible Task Change footers are read from their own App Server thread", as
       },
     }),
     readWorkspaceMetadata: async () => projectWorkspaceMetadata({}),
-    navigation: { async openTask() { return true; } } as unknown as ChatGptNavigationPort,
+    navigation: {
+      async openTask(id: string) { navigatedTaskIds.push(id); return true; },
+      async openNewChat() { newChatRequests += 1; return true; },
+    } as unknown as ChatGptNavigationPort,
     propertyInspector: { async send() {} },
     setTimer,
     clearTimer,
@@ -260,7 +279,7 @@ test("visible Task Change footers are read from their own App Server thread", as
 
   runtime.updateAppearance({ showGitDiffStats: true });
   runtime.attachAction(
-    { id: "one", async setImage() {}, async showAlert() {} },
+    { id: "one", async setImage(image: string) { images.push(image); }, async showAlert() {} },
     normalizeTaskKeySettings({ taskSource: "tasks" }),
   );
   for (let iteration = 0; iteration < 5; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -270,6 +289,56 @@ test("visible Task Change footers are read from their own App Server thread", as
   for (let iteration = 0; iteration < 5; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(threadReads, [taskId]);
+
+  runtime.keyDown("one");
+  const tapTimer = timers.findLast((timer) => timer.delay === KEY_HOLD_THRESHOLD_MS && !timer.cleared);
+  assert.ok(tapTimer);
+  await runtime.keyUp("one");
+  assert.equal(tapTimer.cleared, true);
+  assert.deepEqual(navigatedTaskIds, []);
+  const singleTapTimer = timers.findLast((timer) =>
+    timer.delay === KEY_DOUBLE_TAP_WINDOW_MS && !timer.cleared);
+  assert.ok(singleTapTimer);
+  singleTapTimer.callback();
+  await Promise.resolve();
+  assert.deepEqual(navigatedTaskIds, [taskId]);
+  assert.deepEqual(unreadTaskIds, []);
+
+  runtime.keyDown("one");
+  await runtime.keyUp("one");
+  const doubleTapWindow = timers.findLast((timer) =>
+    timer.delay === KEY_DOUBLE_TAP_WINDOW_MS && !timer.cleared);
+  assert.ok(doubleTapWindow);
+  runtime.keyDown("one");
+  assert.equal(doubleTapWindow.cleared, true);
+  await runtime.keyUp("one");
+  assert.deepEqual(navigatedTaskIds, [taskId]);
+  assert.deepEqual(unreadTaskIds, []);
+  const highlightExpiry = timers.findLast((timer) =>
+    timer.delay === TASK_HIGHLIGHT_DURATION_MS && !timer.cleared);
+  assert.ok(highlightExpiry);
+  for (let iteration = 0; iteration < 3; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(decodeURIComponent(images.at(-1) ?? "").includes('data-highlighted="true"'), true);
+
+  runtime.keyDown("one");
+  await runtime.keyUp("one");
+  runtime.keyDown("one");
+  await runtime.keyUp("one");
+  assert.equal(highlightExpiry.cleared, true);
+  for (let iteration = 0; iteration < 3; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(decodeURIComponent(images.at(-1) ?? "").includes('data-highlighted="true"'), false);
+
+  runtime.keyDown("one");
+  const holdTimer = timers.findLast((timer) => timer.delay === KEY_HOLD_THRESHOLD_MS && !timer.cleared);
+  assert.ok(holdTimer);
+  holdTimer.callback();
+  await Promise.resolve();
+  await runtime.keyUp("one");
+  await Promise.resolve();
+  assert.equal(newChatRequests, 1);
+  assert.deepEqual(inactiveWaits, [{ taskId, timeoutMs: UNREAD_NAVIGATION_TIMEOUT_MS }]);
+  assert.deepEqual(navigatedTaskIds, [taskId]);
+  assert.deepEqual(unreadTaskIds, [taskId]);
   runtime.shutdown();
 });
 

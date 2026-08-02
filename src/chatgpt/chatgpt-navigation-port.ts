@@ -64,6 +64,18 @@ function focusWindowScript(target: Exclude<ChatGptWindowTarget, "last-active">):
 end tell`;
 }
 
+function newChatScript(): string {
+  return `tell application "System Events"
+  set matchingProcesses to every application process whose bundle identifier is "com.openai.codex"
+  if (count of matchingProcesses) is 0 then error "ChatGPT is not running"
+  set chatGptProcess to item 1 of matchingProcesses
+  tell chatGptProcess
+    set frontmost to true
+    keystroke "n" using command down
+  end tell
+end tell`;
+}
+
 export class ChatGptNavigationPort {
   readonly #options: NavigationOptions;
   #windowTarget: ChatGptWindowTarget = "last-active";
@@ -115,6 +127,27 @@ export class ChatGptNavigationPort {
       "/usr/bin/open",
       ["-b", CODEX_BUNDLE_ID, `codex://threads/${taskId}`],
       NAVIGATION_TIMEOUT_MS,
+    );
+  }
+
+  async openNewChat(): Promise<boolean> {
+    void this.#run(
+      "/usr/bin/open",
+      ["-b", CODEX_BUNDLE_ID],
+      WINDOW_FOCUS_TIMEOUT_MS,
+    );
+    if (this.#windowTarget !== "last-active") {
+      const focused = await this.#run(
+        "/usr/bin/osascript",
+        ["-e", focusWindowScript(this.#windowTarget)],
+        WINDOW_FOCUS_TIMEOUT_MS,
+      );
+      if (!focused) return false;
+    }
+    return this.#run(
+      "/usr/bin/osascript",
+      ["-e", newChatScript()],
+      WINDOW_FOCUS_TIMEOUT_MS,
     );
   }
 
