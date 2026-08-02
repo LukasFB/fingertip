@@ -10,6 +10,7 @@
   "scripts": {
     "build": "npm run build-audio-helper && rollup -c",
     "build-audio-helper": "bash scripts/build-audio-helper.sh",
+    "generate:marketplace-assets": "node scripts/generate-marketplace-assets.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
     "lint": "eslint src tests rollup.config.mjs eslint.config.mjs",

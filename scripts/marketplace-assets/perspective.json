@@ -1,0 +1,59 @@
+{
+  "version": 2,
+  "panel": {
+    "canvasSize": [736, 490],
+    "sourceCorners": {
+      "topLeft": [100, 100],
+      "topRight": [636, 100],
+      "bottomRight": [636, 390],
+      "bottomLeft": [100, 390]
+    },
+    "keyCentersX": [100, 234, 368, 502, 636],
+    "keyCentersY": [100, 245, 390],
+    "keySizesByRow": [95, 100, 104],
+    "backingSize": 108
+  },
+  "assets": {
+    "gallery-1-live-status.png": {
+      "destinationCorners": {
+        "topLeft": [1105, 374],
+        "topRight": [1622, 372],
+        "bottomRight": [1633, 586],
+        "bottomLeft": [1090, 588]
+      },
+      "callouts": []
+    },
+    "gallery-2-task-context.png": {
+      "destinationCorners": {
+        "topLeft": [1105, 394],
+        "topRight": [1622, 392],
+        "bottomRight": [1633, 606],
+        "bottomLeft": [1090, 608]
+      },
+      "callouts": [
+        { "key": 6, "x": 118, "y": 618, "size": 210 },
+        { "key": 8, "x": 374, "y": 618, "size": 210 }
+      ]
+    },
+    "gallery-3-exact-task.png": {
+      "destinationCorners": {
+        "topLeft": [360, 414],
+        "topRight": [877, 412],
+        "bottomRight": [888, 626],
+        "bottomLeft": [345, 628]
+      },
+      "callouts": [
+        { "key": 9, "x": 1641, "y": 568, "size": 210 }
+      ]
+    },
+    "thumbnail.png": {
+      "destinationCorners": {
+        "topLeft": [338.75, 384.26],
+        "topRight": [837.26, 382.33],
+        "bottomRight": [847.86, 588.61],
+        "bottomLeft": [324.28, 590.54]
+      },
+      "callouts": []
+    }
+  }
+}
