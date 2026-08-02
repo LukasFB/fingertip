@@ -210,7 +210,7 @@ function renderTextLines(
   fill: string,
 ): string {
   return lines.map((line, index) =>
-    `<text x="${x}" y="${firstBaseline + index * lineHeight}" text-anchor="${anchor}" xml:space="preserve" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}">${escapeXml(line)}</text>`,
+    `<text x="${x}" y="${compactDecimal(firstBaseline + index * lineHeight)}" text-anchor="${anchor}" xml:space="preserve" font-family="Arial, Helvetica, sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${fill}">${escapeXml(line)}</text>`,
   ).join("");
 }
 
@@ -263,7 +263,6 @@ export function renderKeySvg(model: KeyRenderModel): string {
   const projectBarPadding = 3;
   const projectBarHeight = hasProject ? projectFont + projectBarPadding * 2 : 0;
   const projectTextBaseline = projectBarPadding + projectFont * 0.95;
-  const titleFirstBaseline = hasProject ? projectBarHeight + 25 : 31;
   const titleLines = wrapKeyText(title, 124 / font, hasProject ? 3 : 4);
   const projectLines = hasProject ? wrapKeyText(projectLabel, 124 / projectFont, 1) : [];
   const foreground = bestContrastForeground(accent);
@@ -311,6 +310,11 @@ export function renderKeySvg(model: KeyRenderModel): string {
     }).join("")
     : "";
   const lineHeight = font * 1.04;
+  const titleAreaTop = 4 + projectBarHeight;
+  const titleAreaBottom = 116;
+  const titleBlockHeight = font + Math.max(0, titleLines.length - 1) * lineHeight;
+  const titleFreeSpace = Math.max(0, titleAreaBottom - titleAreaTop - titleBlockHeight);
+  const titleFirstBaseline = titleAreaTop + titleFreeSpace / 2 + font * 0.8;
   const activityLabel = model.kind === "task" ? (model.activityLabel?.trim() ?? "") : "";
   const taskChangeStats = model.kind === "task" ? model.taskChangeStats : undefined;
   const taskChangeFooter = taskChangeStats === undefined ? "" : [

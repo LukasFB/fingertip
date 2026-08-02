@@ -377,6 +377,27 @@ test("project bar stays above the active working animation for reliable contrast
   assert.equal(svg.includes('font-size="16" font-weight="650" fill="#f7f9fc">fingertip</text>'), true);
 });
 
+test("thread title lines share the free space between the project and footer bars", () => {
+  const renderTitleBaselines = (title: string): number[] => {
+    const svg = renderKeySvg({
+      kind: "task",
+      taskPosition: 1,
+      titleFontSize: 10,
+      projectFontSize: 8,
+      projectLabel: "Project",
+      title,
+      status: "working",
+      taskChangeStats: { added: 12, deleted: 3, files: 2 },
+      offlineWarning: false,
+    });
+    return [...svg.matchAll(/<text x="10" y="([\d.]+)"[^>]*font-size="20"[^>]*>/gu)]
+      .map((match) => Number(match[1]));
+  };
+
+  assert.deepEqual(renderTitleBaselines("Title"), [77]);
+  assert.deepEqual(renderTitleBaselines("Alpha Beta Gamma Delta Epsilon"), [56.2, 77, 97.8]);
+});
+
 test("project bar height follows project font size with three pixels of vertical padding", () => {
   const render = (projectFontSize: number): string => renderKeySvg({
     kind: "task",
