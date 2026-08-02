@@ -36,6 +36,8 @@
     .audio-actions { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; align-items: center; }
     .audio-actions .range { grid-template-columns: minmax(0, 1fr) 38px; }
     .audio-actions button { padding: 0 8px; white-space: nowrap; }
+    .audio-setting { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; align-items: center; }
+    .audio-setting > label { text-align: left; }
     .helper, .notice { color: #aaa; font-size: 11px; line-height: 1.35; }
     .preview-wrap { display: flex; align-items: center; gap: 12px; }
     #preview { width: 92px; height: 92px; border-radius: 12px; background: #0b0d10; box-shadow: 0 0 20px rgba(150, 207, 244, .18); }
@@ -140,6 +142,20 @@
     <label class="toggle"><input id="border-enabled" type="checkbox" checked><span>Show key border</span></label>
   </div>
   <div class="item" data-tab="appearance" hidden>
+    <label for="project-color-enabled">Project Bar</label>
+    <label class="toggle"><input id="project-color-enabled" type="checkbox"><span>Color by project</span></label>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label for="project-color-opacity">Project Color Opacity</label>
+    <div>
+      <div class="range">
+        <input id="project-color-opacity" type="range" min="0" max="100" step="1" value="60">
+        <span id="project-color-opacity-value" class="value">60%</span>
+      </div>
+      <div class="helper">0% keeps the status color; 100% uses the project color.</div>
+    </div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
     <label for="git-diff-stats">Task Changes</label>
     <label class="toggle"><input id="git-diff-stats" type="checkbox"><span>Show Lines Modified by Task</span></label>
   </div>
@@ -183,8 +199,22 @@
         <div class="audio-actions">
           <button id="done-play-sound" class="secondary" type="button" aria-label="Play done sound">▶ Play</button>
           <div class="range">
-            <input id="done-volume" type="range" min="0" max="100" step="1" value="100" aria-label="Done sound volume">
+            <input id="done-volume" type="range" min="0" max="400" step="1" value="100" aria-label="Done sound volume">
             <span id="done-volume-value" class="value">100%</span>
+          </div>
+        </div>
+        <div class="audio-setting">
+          <label for="done-repeat">Repeat</label>
+          <div class="range">
+            <input id="done-repeat" type="range" min="1" max="10" step="1" value="1" aria-label="Done sound repeat count">
+            <span id="done-repeat-value" class="value">1×</span>
+          </div>
+        </div>
+        <div class="audio-setting">
+          <label for="done-repeat-delay">Repeat delay</label>
+          <div class="range">
+            <input id="done-repeat-delay" type="range" min="25" max="1000" step="1" value="250" aria-label="Done sound repeat delay">
+            <span id="done-repeat-delay-value" class="value">250 ms</span>
           </div>
         </div>
         <div id="done-custom-state" class="helper"></div>
@@ -214,8 +244,22 @@
         <div class="audio-actions">
           <button id="confirmation-play-sound" class="secondary" type="button" aria-label="Play blocked sound">▶ Play</button>
           <div class="range">
-            <input id="confirmation-volume" type="range" min="0" max="100" step="1" value="100" aria-label="Blocked sound volume">
+            <input id="confirmation-volume" type="range" min="0" max="400" step="1" value="100" aria-label="Blocked sound volume">
             <span id="confirmation-volume-value" class="value">100%</span>
+          </div>
+        </div>
+        <div class="audio-setting">
+          <label for="confirmation-repeat">Repeat</label>
+          <div class="range">
+            <input id="confirmation-repeat" type="range" min="1" max="10" step="1" value="1" aria-label="Blocked sound repeat count">
+            <span id="confirmation-repeat-value" class="value">1×</span>
+          </div>
+        </div>
+        <div class="audio-setting">
+          <label for="confirmation-repeat-delay">Repeat delay</label>
+          <div class="range">
+            <input id="confirmation-repeat-delay" type="range" min="25" max="1000" step="1" value="250" aria-label="Blocked sound repeat delay">
+            <span id="confirmation-repeat-delay-value" class="value">250 ms</span>
           </div>
         </div>
         <div id="confirmation-custom-state" class="helper"></div>
@@ -262,6 +306,9 @@
     const timeSizeValue = document.querySelector("#time-size-value");
     const alignmentButtons = [...document.querySelectorAll("[data-alignment]")];
     const borderEnabled = document.querySelector("#border-enabled");
+    const projectColorEnabled = document.querySelector("#project-color-enabled");
+    const projectColorOpacity = document.querySelector("#project-color-opacity");
+    const projectColorOpacityValue = document.querySelector("#project-color-opacity-value");
     const gitDiffStats = document.querySelector("#git-diff-stats");
     const colorInputs = {
       idleColor: document.querySelector("#idle-color"),
@@ -286,6 +333,10 @@
         play: document.querySelector("#done-play-sound"),
         volume: document.querySelector("#done-volume"),
         volumeValue: document.querySelector("#done-volume-value"),
+        repeat: document.querySelector("#done-repeat"),
+        repeatValue: document.querySelector("#done-repeat-value"),
+        repeatDelay: document.querySelector("#done-repeat-delay"),
+        repeatDelayValue: document.querySelector("#done-repeat-delay-value"),
         customState: document.querySelector("#done-custom-state"),
       },
       confirmation: {
@@ -299,6 +350,10 @@
         play: document.querySelector("#confirmation-play-sound"),
         volume: document.querySelector("#confirmation-volume"),
         volumeValue: document.querySelector("#confirmation-volume-value"),
+        repeat: document.querySelector("#confirmation-repeat"),
+        repeatValue: document.querySelector("#confirmation-repeat-value"),
+        repeatDelay: document.querySelector("#confirmation-repeat-delay"),
+        repeatDelayValue: document.querySelector("#confirmation-repeat-delay-value"),
         customState: document.querySelector("#confirmation-custom-state"),
       },
     };
@@ -350,6 +405,9 @@
         button.setAttribute("aria-pressed", String(button.dataset.alignment === settings.textAlignment));
       }
       borderEnabled.checked = settings.borderEnabled;
+      projectColorEnabled.checked = settings.projectColorEnabled;
+      projectColorOpacity.value = String(settings.projectColorOpacity);
+      projectColorOpacityValue.textContent = `${settings.projectColorOpacity}%`;
       gitDiffStats.checked = settings.showGitDiffStats;
       for (const [key, input] of Object.entries(colorInputs)) {
         if (typeof settings[key] === "string") input.value = settings[key];
@@ -362,6 +420,10 @@
         notification.sound.value = settings[`${status}Sound`];
         notification.volume.value = String(settings[`${status}Volume`]);
         notification.volumeValue.textContent = `${settings[`${status}Volume`]}%`;
+        notification.repeat.value = String(settings[`${status}Repeat`]);
+        notification.repeatValue.textContent = `${settings[`${status}Repeat`]}×`;
+        notification.repeatDelay.value = String(settings[`${status}RepeatDelayMs`]);
+        notification.repeatDelayValue.textContent = `${settings[`${status}RepeatDelayMs`]} ms`;
         notification.controls.hidden = mode !== "sound" && mode !== "both";
         renderSoundSource(notification, settings[`${status}SoundSource`]);
       }
@@ -411,6 +473,11 @@
       button.addEventListener("click", () => FingertipPI.setSetting("textAlignment", button.dataset.alignment));
     }
     borderEnabled.addEventListener("change", () => FingertipPI.setSetting("borderEnabled", borderEnabled.checked));
+    projectColorEnabled.addEventListener("change", () => FingertipPI.setSetting("projectColorEnabled", projectColorEnabled.checked));
+    projectColorOpacity.addEventListener("input", () => {
+      projectColorOpacityValue.textContent = `${projectColorOpacity.value}%`;
+      FingertipPI.setSetting("projectColorOpacity", Number(projectColorOpacity.value));
+    });
     gitDiffStats.addEventListener("change", () => FingertipPI.setSetting("showGitDiffStats", gitDiffStats.checked));
     for (const [key, input] of Object.entries(colorInputs)) {
       input.addEventListener("input", () => FingertipPI.setSetting(key, input.value));
@@ -440,6 +507,14 @@
       notification.volume.addEventListener("input", () => {
         notification.volumeValue.textContent = `${notification.volume.value}%`;
         FingertipPI.setSetting(`${status}Volume`, Number(notification.volume.value));
+      });
+      notification.repeat.addEventListener("input", () => {
+        notification.repeatValue.textContent = `${notification.repeat.value}×`;
+        FingertipPI.setSetting(`${status}Repeat`, Number(notification.repeat.value));
+      });
+      notification.repeatDelay.addEventListener("input", () => {
+        notification.repeatDelayValue.textContent = `${notification.repeatDelay.value} ms`;
+        FingertipPI.setSetting(`${status}RepeatDelayMs`, Number(notification.repeatDelay.value));
       });
     }
     document.querySelector("#retry").addEventListener("click", () => FingertipPI.retry());

@@ -24,5 +24,7 @@ export function taskTransitionNotification(
     source: status === "done" ? settings.doneSoundSource : settings.confirmationSoundSource,
     sound: status === "done" ? settings.doneSound : settings.confirmationSound,
     volume: status === "done" ? settings.doneVolume : settings.confirmationVolume,
+    repeat: status === "done" ? settings.doneRepeat : settings.confirmationRepeat,
+    repeatDelayMs: status === "done" ? settings.doneRepeatDelayMs : settings.confirmationRepeatDelayMs,
   });
 }

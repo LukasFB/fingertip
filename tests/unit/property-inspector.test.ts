@@ -22,6 +22,8 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.match(html, /id="time-size" type="range" min="5" max="10" step="1"/u);
   assert.equal(html.includes("Time / Lines Mod. Size"), true);
   assert.equal(html.includes('id="border-enabled" type="checkbox"'), true);
+  assert.equal(html.includes('id="project-color-enabled" type="checkbox"'), true);
+  assert.match(html, /id="project-color-opacity" type="range" min="0" max="100"/u);
   assert.equal(html.includes('id="git-diff-stats" type="checkbox"'), true);
   assert.equal(html.includes('id="queue-badge" type="checkbox"'), true);
   assert.equal(html.includes('id="goal-badge" type="checkbox"'), true);
@@ -59,8 +61,12 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(html.includes('data-sound-source="custom"'), true);
   assert.equal(html.includes('id="done-play-sound"'), true);
   assert.equal(html.includes('id="confirmation-play-sound"'), true);
-  assert.match(html, /id="done-volume" type="range" min="0" max="100"/u);
-  assert.match(html, /id="confirmation-volume" type="range" min="0" max="100"/u);
+  assert.match(html, /id="done-volume" type="range" min="0" max="400"/u);
+  assert.match(html, /id="confirmation-volume" type="range" min="0" max="400"/u);
+  assert.match(html, /id="done-repeat" type="range" min="1" max="10"/u);
+  assert.match(html, /id="confirmation-repeat" type="range" min="1" max="10"/u);
+  assert.match(html, /id="done-repeat-delay" type="range" min="25" max="1000"/u);
+  assert.match(html, /id="confirmation-repeat-delay" type="range" min="25" max="1000"/u);
   for (const tab of ["general", "appearance", "notifications", "status"]) {
     assert.equal(html.includes(`data-tab-button="${tab}"`), true);
     assert.equal(html.includes(`data-tab="${tab}"`), true);
@@ -188,13 +194,15 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const message = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(message?.event, "setGlobalSettings");
   assert.deepEqual(message?.payload, {
-    version: 11,
+    version: 13,
     windowTarget: "last-active",
     titleFontSize: 11,
     projectFontSize: 9,
     timeFontSize: 7,
     textAlignment: "center",
     borderEnabled: false,
+    projectColorEnabled: false,
+    projectColorOpacity: 60,
     showGitDiffStats: false,
     showQueueBadge: false,
     showGoalBadge: false,
@@ -209,10 +217,14 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     doneSoundSource: "system",
     doneSound: "Glass",
     doneVolume: 100,
+    doneRepeat: 1,
+    doneRepeatDelayMs: 250,
     confirmationNotification: "off",
     confirmationSoundSource: "system",
     confirmationSound: "Basso",
     confirmationVolume: 100,
+    confirmationRepeat: 1,
+    confirmationRepeatDelayMs: 250,
   });
 
   api.setSetting("taskPosition", 7);
@@ -237,6 +249,16 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const queueBadge = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(queueBadge?.event, "setGlobalSettings");
   assert.equal(queueBadge?.payload?.showQueueBadge, true);
+
+  api.setSetting("projectColorEnabled", true);
+  const projectColor = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
+  assert.equal(projectColor?.event, "setGlobalSettings");
+  assert.equal(projectColor?.payload?.projectColorEnabled, true);
+
+  api.setSetting("projectColorOpacity", 85);
+  const projectOpacity = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
+  assert.equal(projectOpacity?.event, "setGlobalSettings");
+  assert.equal(projectOpacity?.payload?.projectColorOpacity, 85);
 
   api.setSetting("badgePosition", "bottom-replaces-git");
   const badgePosition = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
@@ -265,13 +287,15 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const reset = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(reset?.event, "setGlobalSettings");
   assert.deepEqual(reset?.payload, {
-    version: 11,
+    version: 13,
     windowTarget: "rightmost",
     titleFontSize: 10,
     projectFontSize: 8,
     timeFontSize: 6,
     textAlignment: "left",
     borderEnabled: true,
+    projectColorEnabled: false,
+    projectColorOpacity: 60,
     showGitDiffStats: false,
     showQueueBadge: false,
     showGoalBadge: false,
@@ -286,10 +310,14 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     doneSoundSource: "custom",
     doneSound: "Ping",
     doneVolume: 35,
+    doneRepeat: 1,
+    doneRepeatDelayMs: 250,
     confirmationNotification: "toast",
     confirmationSoundSource: "system",
     confirmationSound: "Basso",
     confirmationVolume: 100,
+    confirmationRepeat: 1,
+    confirmationRepeatDelayMs: 250,
   });
 
   const soundApi = window.FingertipPI as {

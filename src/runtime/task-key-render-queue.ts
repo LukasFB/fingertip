@@ -79,6 +79,8 @@ function renderModel(snapshot: KeySnapshot, animation?: KeyAnimationEffect): Key
       timeFontSize: snapshot.appearance.timeFontSize,
       textAlignment: snapshot.appearance.textAlignment,
       borderEnabled: snapshot.appearance.borderEnabled,
+      projectColorEnabled: snapshot.appearance.projectColorEnabled,
+      projectColorOpacity: snapshot.appearance.projectColorOpacity,
       colors: taskKeyColors(snapshot.appearance),
       title: snapshot.title,
       ...(snapshot.projectLabel === undefined ? {} : { projectLabel: snapshot.projectLabel }),

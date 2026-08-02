@@ -47,13 +47,15 @@ test("only exact normalized local settings avoid a writeback", () => {
 
 test("missing global appearance uses quiet idle and Codex Micro status colors", () => {
   assert.deepEqual(normalizeTaskKeyAppearanceSettings(undefined), {
-    version: 11,
+    version: 13,
     windowTarget: "last-active",
     titleFontSize: 10,
     projectFontSize: 8,
     timeFontSize: 6,
     textAlignment: "left",
     borderEnabled: true,
+    projectColorEnabled: false,
+    projectColorOpacity: 60,
     showGitDiffStats: false,
     showQueueBadge: false,
     showGoalBadge: false,
@@ -68,10 +70,14 @@ test("missing global appearance uses quiet idle and Codex Micro status colors", 
     doneSoundSource: "system",
     doneSound: "Glass",
     doneVolume: 100,
+    doneRepeat: 1,
+    doneRepeatDelayMs: 250,
     confirmationNotification: "off",
     confirmationSoundSource: "system",
     confirmationSound: "Basso",
     confirmationVolume: 100,
+    confirmationRepeat: 1,
+    confirmationRepeatDelayMs: 250,
   });
 });
 
@@ -91,13 +97,15 @@ test("global font sizes and colors are normalized independently", () => {
       confirmationColor: "#fedcba",
     }),
     {
-      version: 11,
+      version: 13,
       windowTarget: "rightmost",
       titleFontSize: 12,
       projectFontSize: 6,
       timeFontSize: 9,
       textAlignment: "right",
       borderEnabled: false,
+      projectColorEnabled: false,
+      projectColorOpacity: 60,
       showGitDiffStats: false,
       showQueueBadge: false,
       showGoalBadge: false,
@@ -112,10 +120,14 @@ test("global font sizes and colors are normalized independently", () => {
       doneSoundSource: "system",
       doneSound: "Glass",
       doneVolume: 100,
+      doneRepeat: 1,
+      doneRepeatDelayMs: 250,
       confirmationNotification: "off",
       confirmationSoundSource: "system",
       confirmationSound: "Basso",
       confirmationVolume: 100,
+      confirmationRepeat: 1,
+      confirmationRepeatDelayMs: 250,
     },
   );
   assert.equal(normalizeTaskKeyAppearanceSettings({ titleFontSize: 13 }).titleFontSize, 10);
@@ -125,6 +137,10 @@ test("global font sizes and colors are normalized independently", () => {
   assert.equal(normalizeTaskKeyAppearanceSettings({ badgeFontSize: 19 }).badgeFontSize, 15);
   assert.equal(normalizeTaskKeyAppearanceSettings({ textAlignment: "justify" }).textAlignment, "left");
   assert.equal(normalizeTaskKeyAppearanceSettings({ borderEnabled: "false" }).borderEnabled, true);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ projectColorEnabled: true }).projectColorEnabled, true);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ projectColorOpacity: 0 }).projectColorOpacity, 0);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ projectColorOpacity: 100 }).projectColorOpacity, 100);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ projectColorOpacity: 101 }).projectColorOpacity, 60);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showGitDiffStats: true }).showGitDiffStats, true);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showGitDiffStats: "true" }).showGitDiffStats, false);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showQueueBadge: true }).showQueueBadge, true);
@@ -143,7 +159,11 @@ test("global font sizes and colors are normalized independently", () => {
   assert.equal(normalizeTaskKeyAppearanceSettings({ confirmationSound: "custom" }).confirmationSound, "Basso");
   assert.equal(normalizeTaskKeyAppearanceSettings({ doneSoundSource: "custom" }).doneSoundSource, "custom");
   assert.equal(normalizeTaskKeyAppearanceSettings({ doneVolume: 42 }).doneVolume, 42);
-  assert.equal(normalizeTaskKeyAppearanceSettings({ doneVolume: 101 }).doneVolume, 100);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneVolume: 401 }).doneVolume, 100);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneRepeat: 10 }).doneRepeat, 10);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneRepeat: 11 }).doneRepeat, 1);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneRepeatDelayMs: 1000 }).doneRepeatDelayMs, 1000);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ doneRepeatDelayMs: 24 }).doneRepeatDelayMs, 250);
   assert.equal(normalizeTaskKeyAppearanceSettings({ doneSound: "Nope" }).doneSound, "Glass");
 });
 
@@ -188,13 +208,15 @@ test("legacy per-key appearance can seed the central appearance once", () => {
       confirmationColor: "#555555",
     }),
     {
-      version: 11,
+      version: 13,
       windowTarget: "last-active",
       titleFontSize: 11,
       projectFontSize: 8,
       timeFontSize: 6,
       textAlignment: "left",
       borderEnabled: true,
+      projectColorEnabled: false,
+      projectColorOpacity: 60,
       showGitDiffStats: false,
       showQueueBadge: false,
       showGoalBadge: false,
@@ -209,10 +231,14 @@ test("legacy per-key appearance can seed the central appearance once", () => {
       doneSoundSource: "system",
       doneSound: "Glass",
       doneVolume: 100,
+      doneRepeat: 1,
+      doneRepeatDelayMs: 250,
       confirmationNotification: "off",
       confirmationSoundSource: "system",
       confirmationSound: "Basso",
       confirmationVolume: 100,
+      confirmationRepeat: 1,
+      confirmationRepeatDelayMs: 250,
     },
   );
   assert.equal(legacyTaskKeyAppearance({ version: 4, taskPosition: 4 }), null);

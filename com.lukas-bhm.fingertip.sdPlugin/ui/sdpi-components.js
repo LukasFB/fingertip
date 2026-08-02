@@ -10,13 +10,15 @@
     taskSource: "pinned-projects",
   });
   const appearanceDefaults = Object.freeze({
-    version: 11,
+    version: 13,
     windowTarget: "last-active",
     titleFontSize: 10,
     projectFontSize: 8,
     timeFontSize: 6,
     textAlignment: "left",
     borderEnabled: true,
+    projectColorEnabled: false,
+    projectColorOpacity: 60,
     showGitDiffStats: false,
     showQueueBadge: false,
     showGoalBadge: false,
@@ -31,10 +33,14 @@
     doneSoundSource: "system",
     doneSound: "Glass",
     doneVolume: 100,
+    doneRepeat: 1,
+    doneRepeatDelayMs: 250,
     confirmationNotification: "off",
     confirmationSoundSource: "system",
     confirmationSound: "Basso",
     confirmationVolume: 100,
+    confirmationRepeat: 1,
+    confirmationRepeatDelayMs: 250,
   });
   let localSettings = { ...localDefaults };
   let appearance = { ...appearanceDefaults };
@@ -78,7 +84,7 @@
     const notificationSoundSource = (key, legacySoundKey) => source[key] === "custom"
       || source[legacySoundKey] === "custom" ? "custom" : "system";
     return {
-      version: 11,
+      version: 13,
       windowTarget: source.windowTarget === "leftmost" || source.windowTarget === "rightmost"
         ? source.windowTarget : "last-active",
       titleFontSize: integer("titleFontSize", 8, 12),
@@ -87,6 +93,8 @@
       textAlignment: source.textAlignment === "center" || source.textAlignment === "right"
         ? source.textAlignment : "left",
       borderEnabled: typeof source.borderEnabled === "boolean" ? source.borderEnabled : true,
+      projectColorEnabled: source.projectColorEnabled === true,
+      projectColorOpacity: integer("projectColorOpacity", 0, 100),
       showGitDiffStats: source.showGitDiffStats === true,
       showQueueBadge: source.showQueueBadge === true,
       showGoalBadge: source.showGoalBadge === true,
@@ -104,11 +112,15 @@
       doneNotification: notificationMode("doneNotification"),
       doneSoundSource: notificationSoundSource("doneSoundSource", "doneSound"),
       doneSound: notificationSound("doneSound"),
-      doneVolume: integer("doneVolume", 0, 100),
+      doneVolume: integer("doneVolume", 0, 400),
+      doneRepeat: integer("doneRepeat", 1, 10),
+      doneRepeatDelayMs: integer("doneRepeatDelayMs", 25, 1000),
       confirmationNotification: notificationMode("confirmationNotification"),
       confirmationSoundSource: notificationSoundSource("confirmationSoundSource", "confirmationSound"),
       confirmationSound: notificationSound("confirmationSound"),
-      confirmationVolume: integer("confirmationVolume", 0, 100),
+      confirmationVolume: integer("confirmationVolume", 0, 400),
+      confirmationRepeat: integer("confirmationRepeat", 1, 10),
+      confirmationRepeatDelayMs: integer("confirmationRepeatDelayMs", 25, 1000),
     };
   }
 
@@ -167,10 +179,14 @@
         doneSoundSource: appearance.doneSoundSource,
         doneSound: appearance.doneSound,
         doneVolume: appearance.doneVolume,
+        doneRepeat: appearance.doneRepeat,
+        doneRepeatDelayMs: appearance.doneRepeatDelayMs,
         confirmationNotification: appearance.confirmationNotification,
         confirmationSoundSource: appearance.confirmationSoundSource,
         confirmationSound: appearance.confirmationSound,
         confirmationVolume: appearance.confirmationVolume,
+        confirmationRepeat: appearance.confirmationRepeat,
+        confirmationRepeatDelayMs: appearance.confirmationRepeatDelayMs,
       };
       send({ event: "setGlobalSettings", context, payload: appearance });
       notifySettings();

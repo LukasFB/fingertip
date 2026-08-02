@@ -59,8 +59,8 @@ Add or select a Codex Task key in Stream Deck:
 
 - **General** selects the sidebar source, one-based task position, badges, and
   target ChatGPT window.
-- **Appearance** controls shared key colors, fonts, alignment, borders, and
-  line-change statistics.
+- **Appearance** controls shared key colors, fonts, alignment, borders, project
+  bar colors, and line-change statistics.
 - **Notif.** configures Done and Approval Required notifications independently.
   Audio and Both modes expose the sound source, system preset or custom-file
   picker, test-play control, and volume.

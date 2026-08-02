@@ -1,6 +1,9 @@
+import { fileURLToPath } from "node:url";
+
 import streamDeck from "@elgato/streamdeck";
 
 import { TaskKeyAction } from "./actions/task-key-action.ts";
+import { MacTaskNotifier } from "./notifications/mac-task-notifier.ts";
 import { lockProductionLogLevel } from "./production-logging.ts";
 import { FingertipRuntime } from "./runtime/fingertip-runtime.ts";
 import { AppearanceSettingsController } from "./settings/appearance-settings-controller.ts";
@@ -12,6 +15,9 @@ const runtime = new FingertipRuntime({
   propertyInspector: {
     send: (payload) => streamDeck.ui.sendToPropertyInspector(payload),
   },
+  notifier: new MacTaskNotifier({
+    audioHelperPath: fileURLToPath(new URL("./audio-notifier", import.meta.url)),
+  }),
 });
 
 const appearance = new AppearanceSettingsController({

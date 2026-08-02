@@ -8,7 +8,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "rollup -c",
+    "build": "npm run build-audio-helper && rollup -c",
+    "build-audio-helper": "bash scripts/build-audio-helper.sh",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
     "lint": "eslint src tests rollup.config.mjs eslint.config.mjs",

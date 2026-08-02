@@ -43,6 +43,8 @@ test("only real fresh transitions into enabled green or orange states create a n
     source: "system",
     sound: "Glass",
     volume: 80,
+    repeat: 1,
+    repeatDelayMs: 250,
     taskTitle: "Ship it",
   });
   assert.deepEqual(taskTransitionNotification(record("working"), record("confirmation"), settings, "Approve it"), {
@@ -51,6 +53,8 @@ test("only real fresh transitions into enabled green or orange states create a n
     source: "system",
     sound: "Ping",
     volume: 40,
+    repeat: 1,
+    repeatDelayMs: 250,
     taskTitle: "Approve it",
   });
   assert.equal(taskTransitionNotification(undefined, record("done"), settings, "Hydrated"), null);
@@ -79,6 +83,8 @@ test("macOS notifications and system sounds use fixed executables without a shel
     source: "system",
     sound: "Glass",
     volume: 100,
+    repeat: 1,
+    repeatDelayMs: 250,
     taskTitle: "A quoted \"Task\"",
   });
   notifier.notify({
@@ -86,7 +92,9 @@ test("macOS notifications and system sounds use fixed executables without a shel
     mode: "sound",
     source: "system",
     sound: "Ping",
-    volume: 45,
+    volume: 400,
+    repeat: 1,
+    repeatDelayMs: 250,
     taskTitle: "Blocked",
   });
   await new Promise((resolve) => setImmediate(resolve));
@@ -99,7 +107,7 @@ test("macOS notifications and system sounds use fixed executables without a shel
   });
   assert.deepEqual(calls[2], {
     file: "/usr/bin/afplay",
-    args: ["-v", "0.45", "/System/Library/Sounds/Ping.aiff"],
+    args: ["-v", "4", "/System/Library/Sounds/Ping.aiff"],
   });
 });
 
@@ -124,8 +132,10 @@ test("a selected custom audio is bounded, copied locally, and used for its statu
       status: "done",
       mode: "sound",
       source: "custom",
-      sound: "Glass",
-      volume: 75,
+    sound: "Glass",
+    volume: 75,
+    repeat: 1,
+    repeatDelayMs: 250,
       taskTitle: "Custom",
     });
     for (let iteration = 0; iteration < 5; iteration += 1) {
@@ -138,4 +148,69 @@ test("a selected custom audio is bounded, copied locally, and used for its statu
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("repeated audio uses monotonic absolute deadlines without accumulating timer drift", async () => {
+  let nowNs = 0n;
+  const starts: number[] = [];
+  const notifier = new MacTaskNotifier({
+    now: () => nowNs,
+    setTimer(callback, delayMs) {
+      nowNs += BigInt(delayMs) * 1_000_000n;
+      callback();
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    },
+    execFile(file, args, _options, callback) {
+      if (file === "/usr/bin/afplay") {
+        starts.push(Number(nowNs / 1_000_000n));
+        nowNs += 7n * 1_000_000n;
+      }
+      callback(null, "");
+    },
+  });
+
+  notifier.notify({
+    status: "done",
+    mode: "sound",
+    source: "system",
+    sound: "Glass",
+    volume: 100,
+    repeat: 3,
+    repeatDelayMs: 25,
+    taskTitle: "Repeated",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(starts, [0, 25, 50]);
+});
+
+test("the bundled audio helper receives one native scheduling request for repeated audio", async () => {
+  const calls: Array<{ file: string; args: readonly string[] }> = [];
+  const notifier = new MacTaskNotifier({
+    audioHelperPath: "/plugin/bin/audio-notifier",
+    execFile(file, args, _options, callback) {
+      calls.push({ file, args });
+      callback(null, "");
+    },
+  });
+
+  notifier.notify({
+    status: "done",
+    mode: "sound",
+    source: "system",
+    sound: "Glass",
+    volume: 100,
+    repeat: 4,
+    repeatDelayMs: 25,
+    taskTitle: "Native repeated",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(calls, [{
+    file: "/plugin/bin/audio-notifier",
+    args: [
+      "--volume", "1", "--repeat", "4", "--delay-ms", "25",
+      "/System/Library/Sounds/Glass.aiff",
+    ],
+  }]);
 });

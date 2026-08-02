@@ -24,6 +24,8 @@ export interface KeyRenderModel {
   readonly timeFontSize?: number;
   readonly textAlignment?: TaskKeyTextAlignment;
   readonly borderEnabled?: boolean;
+  readonly projectColorEnabled?: boolean;
+  readonly projectColorOpacity?: number;
   readonly title?: string;
   readonly projectLabel?: string;
   readonly status?: TaskStatus | null;
@@ -46,6 +48,9 @@ export const KEY_PALETTE: Readonly<Record<RenderStatus, string>> = Object.freeze
   unknown: "#343842",
 });
 
+const LIGHT_FOREGROUND = "#f7f9fc";
+const DARK_FOREGROUND = "#10141b";
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -65,6 +70,68 @@ function mix(hex: string, target: "#ffffff" | "#000000", amount: number): string
   };
   return `#${[channel(16), channel(8), channel(0)]
     .map((value) => value.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function mixColors(first: string, second: string, amount: number): string {
+  const source = Number.parseInt(first.slice(1), 16);
+  const destination = Number.parseInt(second.slice(1), 16);
+  const channel = (shift: number): number => {
+    const from = (source >> shift) & 255;
+    const to = (destination >> shift) & 255;
+    return Math.round(from + (to - from) * amount);
+  };
+  return `#${[channel(16), channel(8), channel(0)]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function relativeLuminance(hex: string): number {
+  const source = Number.parseInt(hex.slice(1), 16);
+  const linearChannel = (shift: number): number => {
+    const channel = ((source >> shift) & 255) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linearChannel(16) + 0.7152 * linearChannel(8) + 0.0722 * linearChannel(0);
+}
+
+function contrastRatio(background: string, foreground: string): number {
+  const backgroundLuminance = relativeLuminance(background);
+  const foregroundLuminance = relativeLuminance(foreground);
+  const lighter = Math.max(backgroundLuminance, foregroundLuminance);
+  const darker = Math.min(backgroundLuminance, foregroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function bestContrastForeground(background: string): string {
+  return contrastRatio(background, LIGHT_FOREGROUND) >= contrastRatio(background, DARK_FOREGROUND)
+    ? LIGHT_FOREGROUND
+    : DARK_FOREGROUND;
+}
+
+function hueToRgb(p: number, q: number, t: number): number {
+  let normalized = t;
+  if (normalized < 0) normalized += 1;
+  if (normalized > 1) normalized -= 1;
+  if (normalized < 1 / 6) return p + (q - p) * 6 * normalized;
+  if (normalized < 1 / 2) return q;
+  if (normalized < 2 / 3) return p + (q - p) * (2 / 3 - normalized) * 6;
+  return p;
+}
+
+export function deterministicProjectColor(value: string): string {
+  let hash = 2166136261;
+  for (const character of value.normalize("NFKC")) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  const hue = (hash >>> 0) % 360 / 360;
+  const saturation = 0.58;
+  const lightness = 0.31;
+  const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
+  const p = 2 * lightness - q;
+  return `#${[hueToRgb(p, q, hue + 1 / 3), hueToRgb(p, q, hue), hueToRgb(p, q, hue - 1 / 3)]
+    .map((channel) => Math.round(channel * 255).toString(16).padStart(2, "0"))
     .join("")}`;
 }
 
@@ -192,10 +259,19 @@ export function renderKeySvg(model: KeyRenderModel): string {
         : (model.title?.replace(/\s+/gu, " ").trim() || "New Task");
   const projectLabel = model.kind === "task" ? (model.projectLabel?.replace(/\s+/gu, " ").trim() ?? "") : "";
   const hasProject = projectLabel.length > 0;
+  const projectBarPadding = 3;
+  const projectBarHeight = hasProject ? projectFont + projectBarPadding * 2 : 0;
+  const projectTextBaseline = projectBarPadding + projectFont * 0.95;
+  const titleFirstBaseline = hasProject ? projectBarHeight + 25 : 31;
   const titleLines = wrapKeyText(title, 124 / font, hasProject ? 3 : 4);
   const projectLines = hasProject ? wrapKeyText(projectLabel, 124 / projectFont, 1) : [];
-  const foreground = isDark ? "#f7f9fc" : "#10141b";
-  const projectBar = mix(accent, "#000000", 0.28);
+  const foreground = bestContrastForeground(accent);
+  const statusProjectBar = mix(accent, "#000000", 0.28);
+  const projectColorAmount = normalizeInteger(model.projectColorOpacity, 0, 100, 60) / 100;
+  const projectBar = hasProject && model.projectColorEnabled === true
+    ? mixColors(statusProjectBar, deterministicProjectColor(projectLabel), projectColorAmount)
+    : statusProjectBar;
+  const projectForeground = bestContrastForeground(projectBar);
   const taskChangeFooterBar = mix(accent, "#000000", 0.72);
   const animation = model.animation;
   const animationIntensity = normalizeIntensity(animation?.intensity);
@@ -315,17 +391,17 @@ export function renderKeySvg(model: KeyRenderModel): string {
     <rect x="4" y="4" width="136" height="136" rx="16" fill="url(#highlight)"/>
   </g>
   <g clip-path="url(#key)">
-    ${hasProject ? `<rect x="4" y="4" width="136" height="32" fill="${projectBar}"/>` : ""}
+    ${hasProject ? `<rect x="4" y="4" width="136" height="${projectBarHeight}" fill="${projectBar}"/>` : ""}
     ${isWorkingNoise ? `<rect data-animation="working-noise" x="4" y="4" width="136" height="136" rx="16" fill="url(#workingNoise)" fill-opacity="0.72"/>` : ""}
     ${animated && !isWorkingNoise && !isDoneBurst ? `<rect data-animation="status-flash" x="4" y="4" width="136" height="136" rx="16" fill="${animationTint}" fill-opacity="${animationFillOpacity}" stroke="${animationTint}" stroke-opacity="${animationStrokeOpacity}" stroke-width="${animationStrokeWidth}"/>` : ""}
     ${isDoneBurst ? `<g data-animation="done-burst"><rect x="4" y="4" width="136" height="136" rx="16" fill="${animationTint}" fill-opacity="${animationFillOpacity}"/><circle cx="72" cy="72" r="${compactDecimal(burstRadius)}" fill="none" stroke="${animationTint}" stroke-width="${animationStrokeWidth}" stroke-opacity="${animationStrokeOpacity}"/>${burstSparkles}</g>` : ""}
     ${showTaskChangeFooter ? `<rect data-footer="task-changes" x="4" y="116" width="136" height="24" fill="${taskChangeFooterBar}"/>` : ""}
-    ${hasProject ? renderTextLines(projectLines, textPosition.x, textPosition.anchor, 24, 0, projectFont, 650, foreground) : ""}
-    ${renderTextLines(titleLines, textPosition.x, textPosition.anchor, hasProject ? 57 : 31, lineHeight, font, 700, foreground)}
+    ${hasProject ? renderTextLines(projectLines, textPosition.x, textPosition.anchor, projectTextBaseline, 0, projectFont, 650, projectForeground) : ""}
+    ${renderTextLines(titleLines, textPosition.x, textPosition.anchor, titleFirstBaseline, lineHeight, font, 700, foreground)}
     ${model.offlineWarning ? `<text x="${textPosition.x}" y="133" text-anchor="${textPosition.anchor}" font-family="Arial, Helvetica, sans-serif" font-size="${timeFont}" font-weight="800" letter-spacing="0.3" fill="#ffd166">OFFLINE</text>` : showTaskChangeFooter ? `<text x="${textPosition.x}" y="133" text-anchor="${textPosition.anchor}" font-family="Arial, Helvetica, sans-serif" font-size="${timeFont}" font-weight="800">${taskChangeFooter}</text>` : !badgesReplaceFooter && activityLabel.length > 0 ? `<text x="${textPosition.x}" y="133" text-anchor="${textPosition.anchor}" font-family="Arial, Helvetica, sans-serif" font-size="${timeFont}" font-weight="700" fill="${foreground}" fill-opacity="0.72">${escapeXml(activityLabel)}</text>` : ""}
     ${badges}
   </g>
-  ${model.borderEnabled !== false ? `<rect x="5" y="5" width="134" height="134" rx="15" fill="none" stroke="${projectBar}" stroke-width="2"/>` : ""}
+  ${model.borderEnabled !== false ? `<rect x="5" y="5" width="134" height="134" rx="15" fill="none" stroke="${statusProjectBar}" stroke-width="2"/>` : ""}
 </svg>`;
 }
 

@@ -55,13 +55,15 @@ export const MAC_SYSTEM_SOUNDS = Object.freeze([
 export type TaskNotificationSound = typeof MAC_SYSTEM_SOUNDS[number];
 
 export interface TaskKeyAppearanceSettings extends JsonObject {
-  readonly version: 11;
+  readonly version: 13;
   readonly windowTarget: ChatGptWindowTarget;
   readonly titleFontSize: number;
   readonly projectFontSize: number;
   readonly timeFontSize: number;
   readonly textAlignment: TaskKeyTextAlignment;
   readonly borderEnabled: boolean;
+  readonly projectColorEnabled: boolean;
+  readonly projectColorOpacity: number;
   readonly showGitDiffStats: boolean;
   readonly showQueueBadge: boolean;
   readonly showGoalBadge: boolean;
@@ -76,10 +78,14 @@ export interface TaskKeyAppearanceSettings extends JsonObject {
   readonly doneSoundSource: TaskNotificationSoundSource;
   readonly doneSound: TaskNotificationSound;
   readonly doneVolume: number;
+  readonly doneRepeat: number;
+  readonly doneRepeatDelayMs: number;
   readonly confirmationNotification: TaskNotificationMode;
   readonly confirmationSoundSource: TaskNotificationSoundSource;
   readonly confirmationSound: TaskNotificationSound;
   readonly confirmationVolume: number;
+  readonly confirmationRepeat: number;
+  readonly confirmationRepeatDelayMs: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -154,13 +160,15 @@ export function normalizeTaskKeyAppearanceSettings(value: unknown): TaskKeyAppea
     ? DEFAULT_TASK_KEY_COLORS.confirmation
     : normalizedConfirmation;
   return Object.freeze({
-    version: 11,
+    version: 13,
     windowTarget: windowTarget(record.windowTarget),
     titleFontSize: integerInRange(record.titleFontSize, 8, 12, 10),
     projectFontSize: integerInRange(record.projectFontSize, 6, 12, 8),
     timeFontSize: integerInRange(record.timeFontSize, 5, 10, 6),
     textAlignment: textAlignment(record.textAlignment),
     borderEnabled: typeof record.borderEnabled === "boolean" ? record.borderEnabled : true,
+    projectColorEnabled: record.projectColorEnabled === true,
+    projectColorOpacity: integerInRange(record.projectColorOpacity, 0, 100, 60),
     showGitDiffStats: record.showGitDiffStats === true,
     showQueueBadge: record.showQueueBadge === true,
     showGoalBadge: record.showGoalBadge === true,
@@ -174,11 +182,15 @@ export function normalizeTaskKeyAppearanceSettings(value: unknown): TaskKeyAppea
     doneNotification: notificationMode(record.doneNotification),
     doneSoundSource: notificationSoundSource(record.doneSoundSource, record.doneSound),
     doneSound: notificationSound(record.doneSound, "Glass"),
-    doneVolume: integerInRange(record.doneVolume, 0, 100, 100),
+    doneVolume: integerInRange(record.doneVolume, 0, 400, 100),
+    doneRepeat: integerInRange(record.doneRepeat, 1, 10, 1),
+    doneRepeatDelayMs: integerInRange(record.doneRepeatDelayMs, 25, 1_000, 250),
     confirmationNotification: notificationMode(record.confirmationNotification),
     confirmationSoundSource: notificationSoundSource(record.confirmationSoundSource, record.confirmationSound),
     confirmationSound: notificationSound(record.confirmationSound, "Basso"),
-    confirmationVolume: integerInRange(record.confirmationVolume, 0, 100, 100),
+    confirmationVolume: integerInRange(record.confirmationVolume, 0, 400, 100),
+    confirmationRepeat: integerInRange(record.confirmationRepeat, 1, 10, 1),
+    confirmationRepeatDelayMs: integerInRange(record.confirmationRepeatDelayMs, 25, 1_000, 250),
   });
 }
 
@@ -223,7 +235,7 @@ export function taskKeySettingsNeedWriteback(value: unknown): boolean {
 }
 
 export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean {
-  if (!isRecord(value) || Object.keys(value).length !== 25) {
+  if (!isRecord(value) || Object.keys(value).length !== 31) {
     return true;
   }
   const normalized = normalizeTaskKeyAppearanceSettings(value);
@@ -234,6 +246,8 @@ export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean 
     || value.timeFontSize !== normalized.timeFontSize
     || value.textAlignment !== normalized.textAlignment
     || value.borderEnabled !== normalized.borderEnabled
+    || value.projectColorEnabled !== normalized.projectColorEnabled
+    || value.projectColorOpacity !== normalized.projectColorOpacity
     || value.showGitDiffStats !== normalized.showGitDiffStats
     || value.showQueueBadge !== normalized.showQueueBadge
     || value.showGoalBadge !== normalized.showGoalBadge
@@ -248,8 +262,12 @@ export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean 
     || value.doneSoundSource !== normalized.doneSoundSource
     || value.doneSound !== normalized.doneSound
     || value.doneVolume !== normalized.doneVolume
+    || value.doneRepeat !== normalized.doneRepeat
+    || value.doneRepeatDelayMs !== normalized.doneRepeatDelayMs
     || value.confirmationNotification !== normalized.confirmationNotification
     || value.confirmationSoundSource !== normalized.confirmationSoundSource
     || value.confirmationSound !== normalized.confirmationSound
-    || value.confirmationVolume !== normalized.confirmationVolume;
+    || value.confirmationVolume !== normalized.confirmationVolume
+    || value.confirmationRepeat !== normalized.confirmationRepeat
+    || value.confirmationRepeatDelayMs !== normalized.confirmationRepeatDelayMs;
 }

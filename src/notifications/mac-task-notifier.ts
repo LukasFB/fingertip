@@ -27,6 +27,10 @@ export interface TaskNotification {
   readonly source: TaskNotificationSoundSource;
   readonly sound: TaskNotificationSound;
   readonly volume: number;
+  /** Total number of plays, including the first play. */
+  readonly repeat: number;
+  /** Delay between the starts of consecutive plays. */
+  readonly repeatDelayMs: number;
   readonly taskTitle: string;
 }
 
@@ -39,7 +43,13 @@ export interface TaskNotifier {
 interface MacTaskNotifierOptions {
   readonly execFile: ExecFile;
   readonly soundDirectory: string;
+  readonly audioHelperPath: string | null;
+  readonly now: () => bigint;
+  readonly setTimer: (callback: () => void, delayMs: number) => unknown;
 }
+
+const NANOSECONDS_PER_MILLISECOND = 1_000_000n;
+const SCHEDULER_POLL_MS = 10;
 
 function customPrefix(status: TaskNotificationStatus): string {
   return `${status}-custom`;
@@ -53,11 +63,15 @@ export class MacTaskNotifier implements TaskNotifier {
       execFile: options.execFile ?? nodeExecFile as ExecFile,
       soundDirectory: options.soundDirectory
         ?? path.join(os.homedir(), "Library", "Application Support", "Fingertip Agent", "Sounds"),
+      audioHelperPath: options.audioHelperPath ?? null,
+      now: options.now ?? (() => process.hrtime.bigint()),
+      setTimer: options.setTimer ?? setTimeout,
     };
   }
 
   notify(notification: TaskNotification): void {
     if (notification.mode === "off") return;
+    const eventTime = this.#options.now();
     if (notification.mode === "toast" || notification.mode === "both") {
       const subtitle = notification.status === "done" ? "Task completed" : "Task blocked";
       const script = [
@@ -69,10 +83,44 @@ export class MacTaskNotifier implements TaskNotifier {
       if (notification.mode === "toast") return;
     }
     void this.#soundPath(notification.status, notification.source, notification.sound).then((soundPath) => {
-      if (soundPath !== null) {
-        this.#run("/usr/bin/afplay", ["-v", String(notification.volume / 100), soundPath]);
-      }
+      if (soundPath !== null) void this.#playRepeated(soundPath, notification, eventTime);
     });
+  }
+
+  async #playRepeated(soundPath: string, notification: TaskNotification, eventTime: bigint): Promise<void> {
+    const repeat = Number.isInteger(notification.repeat) && notification.repeat >= 1
+      ? Math.min(notification.repeat, 10) : 1;
+    const repeatDelayMs = Number.isInteger(notification.repeatDelayMs) && notification.repeatDelayMs >= 25
+      ? Math.min(notification.repeatDelayMs, 1_000) : 250;
+    if (this.#options.audioHelperPath !== null) {
+      this.#run(this.#options.audioHelperPath, [
+        "--volume", String(notification.volume / 100),
+        "--repeat", String(repeat),
+        "--delay-ms", String(repeatDelayMs),
+        soundPath,
+      ]);
+      return;
+    }
+    const repeatDelayNs = BigInt(repeatDelayMs) * NANOSECONDS_PER_MILLISECOND;
+    for (let index = 0; index < repeat; index += 1) {
+      await this.#waitUntil(eventTime + BigInt(index) * repeatDelayNs);
+      this.#startOnce(soundPath, notification.volume);
+    }
+  }
+
+  async #waitUntil(deadline: bigint): Promise<void> {
+    while (true) {
+      const remainingNs = deadline - this.#options.now();
+      if (remainingNs <= 0n) return;
+      const remainingMs = Number(remainingNs / NANOSECONDS_PER_MILLISECOND);
+      await new Promise<void>((resolve) => {
+        this.#options.setTimer(resolve, Math.max(1, Math.min(remainingMs, SCHEDULER_POLL_MS)));
+      });
+    }
+  }
+
+  #startOnce(soundPath: string, volume: number): void {
+    this.#run("/usr/bin/afplay", ["-v", String(volume / 100), soundPath]);
   }
 
   async importCustomSound(status: TaskNotificationStatus): Promise<boolean> {
@@ -122,8 +170,8 @@ export class MacTaskNotifier implements TaskNotifier {
       .map((file) => rm(path.join(this.#options.soundDirectory, file), { force: true })));
   }
 
-  #run(file: string, args: readonly string[]): void {
-    this.#options.execFile(file, args, { timeout: 10_000 }, () => undefined);
+  #run(file: string, args: readonly string[], onExit: () => void = () => undefined): void {
+    this.#options.execFile(file, args, { timeout: 10_000 }, () => onExit());
   }
 
   #capture(file: string, args: readonly string[]): Promise<string | null> {

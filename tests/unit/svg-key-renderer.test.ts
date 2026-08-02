@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { renderKeySvg, wrapKeyText } from "../../src/rendering/svg-key-renderer.ts";
+import { deterministicProjectColor, renderKeySvg, wrapKeyText } from "../../src/rendering/svg-key-renderer.ts";
 
 test("a project Task renders the approved working key without leaking raw XML", () => {
   const svg = renderKeySvg({
@@ -297,7 +297,7 @@ test("project bar and optional border share a distinctly darker shade of the sta
     borderEnabled: true,
     offlineWarning: false,
   });
-  const projectBar = withBorder.match(/height="32" fill="(#[0-9a-f]{6})"/u)?.[1];
+  const projectBar = withBorder.match(/height="22" fill="(#[0-9a-f]{6})"/u)?.[1];
   assert.ok(projectBar);
   assert.equal(projectBar, "#7099b7");
   assert.equal(withBorder.includes(`stroke="${projectBar}"`), true);
@@ -314,4 +314,60 @@ test("project bar and optional border share a distinctly darker shade of the sta
     offlineWarning: false,
   });
   assert.equal(withoutBorder.includes("stroke-width=\"2\""), false);
+});
+
+test("project bar colors are deterministic and can be mixed back into the status color", () => {
+  const project = "Fingertip";
+  const projectColor = deterministicProjectColor(project);
+  assert.equal(deterministicProjectColor(project), projectColor);
+  assert.notEqual(deterministicProjectColor(project), deterministicProjectColor("Another Project"));
+
+  const statusOnly = renderKeySvg({
+    kind: "task",
+    taskPosition: 1,
+    titleFontSize: 10,
+    projectFontSize: 8,
+    projectLabel: project,
+    title: "Status only",
+    status: "working",
+    projectColorEnabled: true,
+    projectColorOpacity: 0,
+    offlineWarning: false,
+  });
+  assert.equal(statusOnly.includes('height="22" fill="#7099b7"'), true);
+  assert.equal(statusOnly.includes('font-size="16" font-weight="650" fill="#10141b">Fingertip</text>'), true);
+
+  const projectOnly = renderKeySvg({
+    kind: "task",
+    taskPosition: 1,
+    titleFontSize: 10,
+    projectFontSize: 8,
+    projectLabel: project,
+    title: "Project color",
+    status: "working",
+    projectColorEnabled: true,
+    projectColorOpacity: 100,
+    offlineWarning: false,
+  });
+  assert.equal(projectOnly.includes(`height="22" fill="${projectColor}"`), true);
+  assert.equal(projectOnly.includes(`stroke="${projectColor}"`), false);
+  assert.equal(projectOnly.includes('stroke="#7099b7"'), true);
+  assert.equal(projectOnly.includes('font-size="16" font-weight="650" fill="#f7f9fc">Fingertip</text>'), true);
+});
+
+test("project bar height follows project font size with three pixels of vertical padding", () => {
+  const render = (projectFontSize: number): string => renderKeySvg({
+    kind: "task",
+    taskPosition: 1,
+    titleFontSize: 10,
+    projectFontSize,
+    projectLabel: "Project",
+    title: "Title",
+    status: "idle",
+    offlineWarning: false,
+  });
+
+  assert.equal(render(6).includes('height="18"'), true);
+  assert.equal(render(8).includes('height="22"'), true);
+  assert.equal(render(12).includes('height="30"'), true);
 });

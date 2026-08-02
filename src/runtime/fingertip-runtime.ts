@@ -270,6 +270,9 @@ export class FingertipRuntime {
       source: done ? this.#appearance.doneSoundSource : this.#appearance.confirmationSoundSource,
       sound: done ? this.#appearance.doneSound : this.#appearance.confirmationSound,
       volume: done ? this.#appearance.doneVolume : this.#appearance.confirmationVolume,
+      repeat: done ? this.#appearance.doneRepeat : this.#appearance.confirmationRepeat,
+      repeatDelayMs: done
+        ? this.#appearance.doneRepeatDelayMs : this.#appearance.confirmationRepeatDelayMs,
       taskTitle: "Sound preview",
     });
   }
