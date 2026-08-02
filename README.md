@@ -105,6 +105,21 @@ development.
   notifications.
 - Updated the release metadata and documentation for 1.0.3.
 
+## Version 1.0.2
+
+- Added tabbed settings for a roomier Property Inspector.
+- Added independent Done and Approval Required notifications.
+- Added Toast, Audio, and combined Both notification modes.
+- Added macOS system sounds, custom audio import, test playback, and volume.
+- Added shared appearance controls, task change statistics, and queue/goal
+  badges.
+
+## Version 1.0.1
+
+- Published the first Fingertip Agent release for Stream Deck.
+- Added live Codex task status, sidebar-based task selection, direct task
+  navigation, and configurable key appearance.
+
 ## Compatibility and privacy
 
 Task metadata, appearance settings, and custom audio stay on the Mac.
