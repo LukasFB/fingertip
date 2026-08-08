@@ -95,6 +95,11 @@ npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 Use `npm run reload` to build and restart the linked plugin during local
 development.
 
+## Version 1.0.4
+
+- Compatibility with new ChatGPT version (`.codex-global-state.json` size
+  increase).
+
 ## Version 1.0.3
 
 - Added deterministic project-colored title bars with configurable opacity,
