@@ -3,7 +3,11 @@ import { open } from "node:fs/promises";
 
 import { projectWorkspaceMetadata, type WorkspaceMetadata } from "./project-label-resolver.ts";
 
-const MAXIMUM_GLOBAL_STATE_BYTES = 4 * 1024 * 1024;
+// ChatGPT stores auxiliary UI state and queued follow-up contents alongside the
+// small sidebar metadata projection consumed below. Those unrelated fields can
+// legitimately push the owned state file beyond 4 MiB (ChatGPT 26.803 does so),
+// so keep a bounded read while allowing enough headroom for the full JSON value.
+const MAXIMUM_GLOBAL_STATE_BYTES = 16 * 1024 * 1024;
 
 class ReplacementRaceError extends Error {}
 
