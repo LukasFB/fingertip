@@ -24,8 +24,10 @@ export class AppearanceSettingsController {
   #explicit = false;
   #legacyCandidate: TaskKeyAppearanceSettings | null = null;
   #legacyBadgeCandidate: TaskKeyBadgeAppearanceSettings | null = null;
+  #legacyOrderingCandidate = false;
   #current = DEFAULT_TASK_KEY_APPEARANCE;
   #explicitBadgeSettings = false;
+  #explicitOrderingSetting = false;
 
   constructor(options: AppearanceSettingsControllerOptions) {
     this.#options = options;
@@ -47,20 +49,30 @@ export class AppearanceSettingsController {
     if (this.#loaded) await this.#adoptLegacyBadges();
   }
 
+  async offerLegacyOrdering(value: unknown): Promise<void> {
+    if (this.#explicitOrderingSetting || this.#legacyOrderingCandidate
+      || !hasEnabledLegacyOrdering(value)) return;
+    this.#legacyOrderingCandidate = true;
+    if (this.#loaded) await this.#adoptLegacyOrdering();
+  }
+
   async load(value: unknown): Promise<void> {
     this.#loaded = true;
     if (hasSettings(value)) {
       await this.#receiveExplicit(value);
       await this.#adoptLegacyBadges();
+      await this.#adoptLegacyOrdering();
       return;
     }
     if (this.#legacyCandidate !== null) {
       await this.#adopt(this.#legacyCandidate);
       await this.#adoptLegacyBadges();
+      await this.#adoptLegacyOrdering();
       return;
     }
     this.#apply(DEFAULT_TASK_KEY_APPEARANCE);
     await this.#adoptLegacyBadges();
+    await this.#adoptLegacyOrdering();
   }
 
   async receive(value: unknown): Promise<void> {
@@ -73,6 +85,10 @@ export class AppearanceSettingsController {
     if (hasExplicitBadgeSettings(value)) {
       this.#explicitBadgeSettings = true;
       this.#legacyBadgeCandidate = null;
+    }
+    if (hasExplicitOrderingSetting(value)) {
+      this.#explicitOrderingSetting = true;
+      this.#legacyOrderingCandidate = false;
     }
     const settings = normalizeTaskKeyAppearanceSettings(value);
     this.#apply(settings);
@@ -96,6 +112,18 @@ export class AppearanceSettingsController {
     await this.#options.write(settings);
   }
 
+  async #adoptLegacyOrdering(): Promise<void> {
+    if (!this.#legacyOrderingCandidate || this.#explicitOrderingSetting) return;
+    this.#legacyOrderingCandidate = false;
+    this.#explicitOrderingSetting = true;
+    const settings = normalizeTaskKeyAppearanceSettings({
+      ...this.#current,
+      moveActiveUnreadThreadsToTop: true,
+    });
+    this.#apply(settings);
+    await this.#options.write(settings);
+  }
+
   #apply(settings: TaskKeyAppearanceSettings): void {
     this.#current = settings;
     this.#options.apply(settings);
@@ -111,4 +139,14 @@ function hasExplicitBadgeSettings(value: unknown): boolean {
     || record.badgePosition === "bottom-left"
     || record.badgePosition === "bottom-right"
     || record.badgePosition === "bottom-replaces-git";
+}
+
+function hasEnabledLegacyOrdering(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return (value as Record<string, unknown>).moveActiveUnreadThreadsToTop === true;
+}
+
+function hasExplicitOrderingSetting(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return typeof (value as Record<string, unknown>).moveActiveUnreadThreadsToTop === "boolean";
 }

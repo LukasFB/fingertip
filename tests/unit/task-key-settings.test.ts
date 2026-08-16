@@ -67,8 +67,9 @@ test("the former settled-project setting migrates to active and unread ordering"
 
 test("missing global appearance uses quiet idle and Codex Micro status colors", () => {
   assert.deepEqual(normalizeTaskKeyAppearanceSettings(undefined), {
-    version: 13,
+    version: 14,
     windowTarget: "last-active",
+    moveActiveUnreadThreadsToTop: false,
     titleFontSize: 10,
     projectFontSize: 8,
     timeFontSize: 6,
@@ -117,8 +118,9 @@ test("global font sizes and colors are normalized independently", () => {
       confirmationColor: "#fedcba",
     }),
     {
-      version: 13,
+      version: 14,
       windowTarget: "rightmost",
+      moveActiveUnreadThreadsToTop: false,
       titleFontSize: 12,
       projectFontSize: 6,
       timeFontSize: 9,
@@ -163,6 +165,7 @@ test("global font sizes and colors are normalized independently", () => {
   assert.equal(normalizeTaskKeyAppearanceSettings({ projectColorOpacity: 101 }).projectColorOpacity, 60);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showGitDiffStats: true }).showGitDiffStats, true);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showGitDiffStats: "true" }).showGitDiffStats, false);
+  assert.equal(normalizeTaskKeyAppearanceSettings({ moveActiveUnreadThreadsToTop: true }).moveActiveUnreadThreadsToTop, true);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showQueueBadge: true }).showQueueBadge, true);
   assert.equal(normalizeTaskKeyAppearanceSettings({ showGoalBadge: true }).showGoalBadge, true);
   for (const value of ["top-right", "top-left", "bottom-left", "bottom-right", "bottom-replaces-git"] as const) {
@@ -228,8 +231,9 @@ test("legacy per-key appearance can seed the central appearance once", () => {
       confirmationColor: "#555555",
     }),
     {
-      version: 13,
+      version: 14,
       windowTarget: "last-active",
+      moveActiveUnreadThreadsToTop: false,
       titleFontSize: 11,
       projectFontSize: 8,
       timeFontSize: 6,

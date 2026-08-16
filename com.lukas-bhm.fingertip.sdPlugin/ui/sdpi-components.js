@@ -8,11 +8,11 @@
     version: 9,
     taskPosition: 1,
     taskSource: "pinned-projects",
-    moveActiveUnreadThreadsToTop: false,
   });
   const appearanceDefaults = Object.freeze({
-    version: 13,
+    version: 14,
     windowTarget: "last-active",
+    moveActiveUnreadThreadsToTop: false,
     titleFontSize: 10,
     projectFontSize: 8,
     timeFontSize: 6,
@@ -61,8 +61,6 @@
       version: 9,
       taskPosition,
       taskSource,
-      moveActiveUnreadThreadsToTop: source.moveActiveUnreadThreadsToTop === true
-        || (source.moveActiveUnreadThreadsToTop === undefined && source.skipSettledProjectTasks === true),
     };
   }
 
@@ -87,9 +85,10 @@
     const notificationSoundSource = (key, legacySoundKey) => source[key] === "custom"
       || source[legacySoundKey] === "custom" ? "custom" : "system";
     return {
-      version: 13,
+      version: 14,
       windowTarget: source.windowTarget === "leftmost" || source.windowTarget === "rightmost"
         ? source.windowTarget : "last-active",
+      moveActiveUnreadThreadsToTop: source.moveActiveUnreadThreadsToTop === true,
       titleFontSize: integer("titleFontSize", 8, 12),
       projectFontSize: integer("projectFontSize", 6, 12),
       timeFontSize: integer("timeFontSize", 5, 10),
@@ -165,7 +164,7 @@
     onSettings(listener) { settingsListeners.add(listener); listener({ ...localSettings, ...appearance }); },
     onState(listener) { stateListeners.add(listener); },
     setSetting(key, value) {
-      if (key === "taskPosition" || key === "taskSource" || key === "moveActiveUnreadThreadsToTop") {
+      if (key === "taskPosition" || key === "taskSource") {
         localSettings = normalizedLocal({ ...localSettings, [key]: value });
         send({ event: "setSettings", context, payload: localSettings });
       } else {
@@ -178,6 +177,7 @@
       appearance = {
         ...appearanceDefaults,
         windowTarget: appearance.windowTarget,
+        moveActiveUnreadThreadsToTop: appearance.moveActiveUnreadThreadsToTop,
         doneNotification: appearance.doneNotification,
         doneSoundSource: appearance.doneSoundSource,
         doneSound: appearance.doneSound,

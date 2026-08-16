@@ -56,8 +56,9 @@ export const MAC_SYSTEM_SOUNDS = Object.freeze([
 export type TaskNotificationSound = typeof MAC_SYSTEM_SOUNDS[number];
 
 export interface TaskKeyAppearanceSettings extends JsonObject {
-  readonly version: 13;
+  readonly version: 14;
   readonly windowTarget: ChatGptWindowTarget;
+  readonly moveActiveUnreadThreadsToTop: boolean;
   readonly titleFontSize: number;
   readonly projectFontSize: number;
   readonly timeFontSize: number;
@@ -163,8 +164,9 @@ export function normalizeTaskKeyAppearanceSettings(value: unknown): TaskKeyAppea
     ? DEFAULT_TASK_KEY_COLORS.confirmation
     : normalizedConfirmation;
   return Object.freeze({
-    version: 13,
+    version: 14,
     windowTarget: windowTarget(record.windowTarget),
+    moveActiveUnreadThreadsToTop: record.moveActiveUnreadThreadsToTop === true,
     titleFontSize: integerInRange(record.titleFontSize, 8, 12, 10),
     projectFontSize: integerInRange(record.projectFontSize, 6, 12, 8),
     timeFontSize: integerInRange(record.timeFontSize, 5, 10, 6),
@@ -239,12 +241,13 @@ export function taskKeySettingsNeedWriteback(value: unknown): boolean {
 }
 
 export function taskKeyAppearanceSettingsNeedWriteback(value: unknown): boolean {
-  if (!isRecord(value) || Object.keys(value).length !== 31) {
+  if (!isRecord(value) || Object.keys(value).length !== 32) {
     return true;
   }
   const normalized = normalizeTaskKeyAppearanceSettings(value);
   return value.version !== normalized.version
     || value.windowTarget !== normalized.windowTarget
+    || value.moveActiveUnreadThreadsToTop !== normalized.moveActiveUnreadThreadsToTop
     || value.titleFontSize !== normalized.titleFontSize
     || value.projectFontSize !== normalized.projectFontSize
     || value.timeFontSize !== normalized.timeFontSize

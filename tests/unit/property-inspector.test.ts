@@ -198,8 +198,9 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const message = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(message?.event, "setGlobalSettings");
   assert.deepEqual(message?.payload, {
-    version: 13,
+    version: 14,
     windowTarget: "last-active",
+    moveActiveUnreadThreadsToTop: false,
     titleFontSize: 11,
     projectFontSize: 9,
     timeFontSize: 7,
@@ -238,7 +239,6 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     version: 9,
     taskPosition: 7,
     taskSource: "tasks",
-    moveActiveUnreadThreadsToTop: false,
   });
 
   api.setSetting("taskSource", "pinned-projects");
@@ -248,12 +248,11 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     version: 9,
     taskPosition: 7,
     taskSource: "pinned-projects",
-    moveActiveUnreadThreadsToTop: false,
   });
 
   api.setSetting("moveActiveUnreadThreadsToTop", true);
   const moveActive = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
-  assert.equal(moveActive?.event, "setSettings");
+  assert.equal(moveActive?.event, "setGlobalSettings");
   assert.equal(moveActive?.payload?.moveActiveUnreadThreadsToTop, true);
 
   api.setSetting("showQueueBadge", true);
@@ -298,8 +297,9 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   const reset = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
   assert.equal(reset?.event, "setGlobalSettings");
   assert.deepEqual(reset?.payload, {
-    version: 13,
+    version: 14,
     windowTarget: "rightmost",
+    moveActiveUnreadThreadsToTop: true,
     titleFontSize: 10,
     projectFontSize: 8,
     timeFontSize: 6,

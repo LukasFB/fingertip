@@ -40,7 +40,7 @@ import { createKeySnapshot, type KeySnapshot } from "./key-snapshot.ts";
 import type { DesktopState } from "./key-presentation.ts";
 import { TaskKeyRegistry, type TaskKeyActionPort } from "./task-key-registry.ts";
 import { renderSnapshotDataUrl } from "./task-key-render-queue.ts";
-import { needsTaskStatusHydration, taskAtPositionForKey } from "./task-selection.ts";
+import { taskAtPositionForKey } from "./task-selection.ts";
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const DESKTOP_WARNING_GRACE_MS = 2_500;
@@ -705,8 +705,12 @@ export class FingertipRuntime {
   }
 
   #snapshot(settings: TaskKeySettings): KeySnapshot {
+    const selectionSettings = Object.freeze({
+      ...settings,
+      moveActiveUnreadThreadsToTop: this.#appearance.moveActiveUnreadThreadsToTop,
+    });
     return createKeySnapshot({
-      settings,
+      settings: selectionSettings,
       appearance: this.#appearance,
       catalog: this.#catalogView,
       desktopState: this.#desktopState,
@@ -773,9 +777,9 @@ export class FingertipRuntime {
     if (feed === null || this.#options.desktopIpc.state !== "online") return;
     const taskIds = new Set<TaskId>();
     const entries = this.#registry.entries();
-    const hydrationSources = new Set(entries
-      .filter((entry) => needsTaskStatusHydration(entry.settings))
-      .map((entry) => entry.settings.taskSource));
+    const hydrationSources = this.#appearance.moveActiveUnreadThreadsToTop
+      ? new Set(entries.map((entry) => entry.settings.taskSource))
+      : new Set<TaskKeySettings["taskSource"]>();
     if (hydrationSources.size > 0) {
       for (const task of feed) {
         if (hydrationSources.has(task.source)) taskIds.add(parseTaskId(task.id));
@@ -790,7 +794,10 @@ export class FingertipRuntime {
   }
 
   #taskForSettings(settings: TaskKeySettings, feed: readonly CatalogTask[]): CatalogTask | null {
-    return taskAtPositionForKey(feed, settings, {
+    return taskAtPositionForKey(feed, {
+      ...settings,
+      moveActiveUnreadThreadsToTop: this.#appearance.moveActiveUnreadThreadsToTop,
+    }, {
       catalogState: this.#catalogView.state,
       desktopState: this.#desktopState,
       liveByTaskId: this.#displayLiveRecords(),

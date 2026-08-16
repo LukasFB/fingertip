@@ -25,8 +25,9 @@ test("an existing global appearance is applied and wins over legacy key settings
 
   controller.offerLegacy(legacy);
   await controller.load({
-    version: 13,
+    version: 14,
     windowTarget: "rightmost",
+    moveActiveUnreadThreadsToTop: false,
     titleFontSize: 11,
     projectFontSize: 9,
     timeFontSize: 7,
@@ -109,6 +110,35 @@ test("enabled V6 per-key badges still migrate after shared defaults were normali
 
   assert.equal(written.at(-1)?.showQueueBadge, true);
   assert.equal(written.at(-1)?.showGoalBadge, true);
+});
+
+test("enabled per-key ordering migrates once into the shared setting", async () => {
+  const applied: TaskKeyAppearanceSettings[] = [];
+  const written: TaskKeyAppearanceSettings[] = [];
+  const controller = new AppearanceSettingsController({
+    apply: (settings) => applied.push(settings),
+    write: async (settings) => { written.push(settings); },
+  });
+
+  await controller.load({ version: 13, titleFontSize: 11 });
+  await controller.offerLegacyOrdering({ moveActiveUnreadThreadsToTop: true });
+
+  assert.equal(applied.at(-1)?.moveActiveUnreadThreadsToTop, true);
+  assert.equal(written.at(-1)?.moveActiveUnreadThreadsToTop, true);
+});
+
+test("an explicit shared ordering choice wins over legacy per-key settings", async () => {
+  const written: TaskKeyAppearanceSettings[] = [];
+  const controller = new AppearanceSettingsController({
+    apply: () => undefined,
+    write: async (settings) => { written.push(settings); },
+  });
+
+  await controller.load({ version: 14, moveActiveUnreadThreadsToTop: false });
+  const writesAfterLoad = written.length;
+  await controller.offerLegacyOrdering({ moveActiveUnreadThreadsToTop: true });
+
+  assert.equal(written.length, writesAfterLoad);
 });
 
 test("the first legacy key seeds empty global settings after initial load", async () => {

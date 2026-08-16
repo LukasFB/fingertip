@@ -28,6 +28,7 @@ const appearance = new AppearanceSettingsController({
 streamDeck.actions.registerAction(new TaskKeyAction(runtime, (settings) => {
   void appearance.offerLegacy(settings);
   void appearance.offerLegacyBadges(settings);
+  void appearance.offerLegacyOrdering(settings);
 }));
 streamDeck.settings.onDidReceiveGlobalSettings<TaskKeyAppearanceSettings>((event) => {
   void appearance.receive(event.settings);
