@@ -43,7 +43,6 @@ import { renderSnapshotDataUrl } from "./task-key-render-queue.ts";
 import { needsTaskStatusHydration, taskAtPositionForKey } from "./task-selection.ts";
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
-const IPC_RETRY_DELAY_MS = 60_000;
 const DESKTOP_WARNING_GRACE_MS = 2_500;
 const TASK_CHANGE_REFRESH_MS = 45_000;
 export const KEY_HOLD_THRESHOLD_MS = 600;
@@ -170,8 +169,8 @@ export class FingertipRuntime {
     this.#options.desktopIpc.onHealth((state) => {
       this.#acceptDesktopState(state);
       if (state === "online") {
+        this.#clearIpcRetry();
         this.#ipcAttempt = 0;
-        this.#ipcRetryAt = null;
         this.#chatGptNotRunning = false;
         this.#hydrateVisibleTaskStatuses();
       }
@@ -536,7 +535,7 @@ export class FingertipRuntime {
   #scheduleIpcRetry(): void {
     if (this.#ipcTimer !== null || !this.#running || this.#chatGptNotRunning) return;
     const generation = this.#generation;
-    const delay = IPC_RETRY_DELAY_MS;
+    const delay = computeRetryDelayMs(this.#ipcAttempt, this.#options.random);
     this.#ipcAttempt += 1;
     this.#ipcRetryAt = this.#options.now() + delay;
     this.#ipcTimer = this.#options.setTimer(() => {

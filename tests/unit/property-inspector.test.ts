@@ -52,7 +52,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(html.includes("1 is the first Task within the selected sidebar section."), true);
   assert.equal(html.includes("Dynamic Task status requires this key's custom image to be reset to Default."), true);
   assert.equal(html.includes("Reconnect ChatGPT"), true);
-  assert.equal(html.includes("once per minute"), true);
+  assert.equal(html.includes("short backoff"), true);
   assert.equal(html.includes("Applies to every Codex Task key."), true);
   assert.equal(html.includes('id="done-notification"'), true);
   assert.equal(html.includes('id="confirmation-notification"'), true);

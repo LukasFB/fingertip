@@ -292,7 +292,7 @@
     <label></label>
     <div>
       <button id="retry" type="button">Reconnect ChatGPT</button>
-      <div class="helper">Rebuilds the local ChatGPT socket connection. If it drops, Fingertip retries automatically once per minute.</div>
+      <div class="helper">Rebuilds the local ChatGPT socket connection. If it drops, Fingertip retries automatically with a short backoff.</div>
     </div>
   </div>
   <div class="notice" data-tab="status" hidden>Dynamic Task status requires this key's custom image to be reset to Default.</div>

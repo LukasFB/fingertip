@@ -26,7 +26,7 @@ test("IPC and catalog reconnect backoff is 1/2/5/10 seconds with bounded jitter"
   assert.equal(computeRetryDelayMs(0, () => 1), 1_100);
 });
 
-test("IPC reconnects are limited to once per minute", async () => {
+test("IPC reconnects use short bounded backoff without duplicate timers", async () => {
   const timers: { callback: () => void; delay: number; cleared: boolean }[] = [];
   const setTimer = ((callback: () => void, delay = 0) => {
     timers.push({ callback, delay, cleared: false });
@@ -50,6 +50,7 @@ test("IPC reconnects are limited to once per minute", async () => {
       stop() {},
     } as unknown as ChatGptDesktopIpcAdapter,
     propertyInspector: { async send() {} },
+    random: () => 0.5,
     setTimer,
     clearTimer,
   });
@@ -57,10 +58,56 @@ test("IPC reconnects are limited to once per minute", async () => {
   runtime.attachAction({ id: "one", async setImage() {}, async showAlert() {} }, normalizeTaskKeySettings(undefined));
   await Promise.resolve();
   assert.equal(starts, 1);
-  const retry = timers.find((timer) => timer.delay === 60_000 && !timer.cleared);
+  const retry = timers.find((timer) => timer.delay === 1_000 && !timer.cleared);
   assert.ok(retry);
   for (const listener of healthListeners) listener("offline");
-  assert.equal(timers.filter((timer) => timer.delay === 60_000 && !timer.cleared).length, 1);
+  assert.equal(timers.filter((timer) => timer.delay === 1_000 && !timer.cleared).length, 1);
+
+  retry.callback();
+  await Promise.resolve();
+  assert.equal(starts, 2);
+  assert.ok(timers.some((timer) => timer.delay === 2_000 && !timer.cleared));
+  runtime.shutdown();
+});
+
+test("an IPC recovery cancels a pending retry and resets its backoff", async () => {
+  const timers: { callback: () => void; delay: number; cleared: boolean }[] = [];
+  const setTimer = ((callback: () => void, delay = 0) => {
+    timers.push({ callback, delay, cleared: false });
+    return timers.length as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+  const clearTimer = ((timer: ReturnType<typeof setTimeout>) => {
+    const entry = timers[Number(timer) - 1];
+    if (entry !== undefined) entry.cleared = true;
+  }) as typeof clearTimeout;
+  const healthListeners = new Set<(state: "connecting" | "online" | "offline" | "incompatible") => void>();
+  const runtime = new FingertipRuntime({
+    desktopIpc: {
+      onHealth(listener: (state: "connecting" | "online" | "offline" | "incompatible") => void) {
+        healthListeners.add(listener);
+        return () => healthListeners.delete(listener);
+      },
+      onTaskRecord() { return () => undefined; },
+      onCatalogHint() { return () => undefined; },
+      start() { return Promise.reject(new Error("socket unavailable")); },
+      stop() {},
+    } as unknown as ChatGptDesktopIpcAdapter,
+    propertyInspector: { async send() {} },
+    random: () => 0.5,
+    setTimer,
+    clearTimer,
+  });
+
+  runtime.attachAction({ id: "one", async setImage() {}, async showAlert() {} }, normalizeTaskKeySettings(undefined));
+  await Promise.resolve();
+  const pendingRetry = timers.find((timer) => timer.delay === 1_000 && !timer.cleared);
+  assert.ok(pendingRetry);
+
+  for (const listener of healthListeners) listener("online");
+  assert.equal(pendingRetry.cleared, true);
+
+  for (const listener of healthListeners) listener("offline");
+  assert.ok(timers.findLast((timer) => timer.delay === 1_000 && !timer.cleared));
   runtime.shutdown();
 });
 
