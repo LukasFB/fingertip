@@ -95,6 +95,13 @@ npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 Use `npm run reload` to build and restart the linked plugin during local
 development.
 
+## Version 1.0.5
+
+- Restored reliable live status tracking after ChatGPT IPC disconnects with
+  fast, bounded automatic reconnects.
+- Made active and unread Thread ordering consistent across every Task key,
+  including migration of the previous per-key preference.
+
 ## Version 1.0.4
 
 - Compatibility with new ChatGPT version (`.codex-global-state.json` size

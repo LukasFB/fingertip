@@ -43,7 +43,7 @@ const tasks = [
 ];
 
 const appearance = normalizeTaskKeyAppearanceSettings({
-  version: 13,
+  version: 14,
   textAlignment: "center",
   borderEnabled: false,
   projectColorEnabled: true,
