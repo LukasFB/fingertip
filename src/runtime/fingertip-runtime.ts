@@ -43,7 +43,11 @@ import { renderSnapshotDataUrl } from "./task-key-render-queue.ts";
 import { taskAtPositionForKey } from "./task-selection.ts";
 
 const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
-const DESKTOP_WARNING_GRACE_MS = 2_500;
+// A routine socket replacement can span the first few reconnect attempts and
+// their handshakes. Keep the last trustworthy key state visible throughout
+// that window so a shared transport hiccup does not flash every key offline.
+const DESKTOP_WARNING_GRACE_MS = 10_000;
+const DESKTOP_HYDRATION_GRACE_MS = 2_500;
 const TASK_CHANGE_REFRESH_MS = 45_000;
 export const KEY_HOLD_THRESHOLD_MS = 600;
 export const KEY_DOUBLE_TAP_WINDOW_MS = 300;
@@ -586,7 +590,7 @@ export class FingertipRuntime {
     this.#desktopHydrationTimer = this.#options.setTimer(() => {
       this.#desktopHydrationTimer = null;
       this.#renderAll();
-    }, DESKTOP_WARNING_GRACE_MS);
+    }, DESKTOP_HYDRATION_GRACE_MS);
   }
 
   async #startCatalog(generation: number): Promise<void> {

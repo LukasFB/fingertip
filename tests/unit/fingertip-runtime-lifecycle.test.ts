@@ -111,7 +111,7 @@ test("an IPC recovery cancels a pending retry and resets its backoff", async () 
   runtime.shutdown();
 });
 
-test("brief desktop IPC reconnects retain the online key image while a real outage still warns", async () => {
+test("routine desktop IPC reconnects retain the online key image while a real outage still warns", async () => {
   const timers: { callback: () => void; delay: number; cleared: boolean }[] = [];
   const setTimer = ((callback: () => void, delay = 0) => {
     timers.push({ callback, delay, cleared: false });
@@ -143,13 +143,13 @@ test("brief desktop IPC reconnects retain the online key image while a real outa
 
   for (const listener of healthListeners) listener("online");
   for (const listener of healthListeners) listener("offline");
-  const firstWarning = timers.find((timer) => timer.delay === 2_500 && !timer.cleared);
+  const firstWarning = timers.find((timer) => timer.delay === 10_000 && !timer.cleared);
   assert.ok(firstWarning);
   for (const listener of healthListeners) listener("online");
   assert.equal(firstWarning.cleared, true);
 
   for (const listener of healthListeners) listener("offline");
-  const lastingWarning = timers.findLast((timer) => timer.delay === 2_500 && !timer.cleared);
+  const lastingWarning = timers.findLast((timer) => timer.delay === 10_000 && !timer.cleared);
   assert.ok(lastingWarning);
   lastingWarning.callback();
   await Promise.resolve();
