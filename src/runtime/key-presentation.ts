@@ -31,7 +31,10 @@ export function projectKeyPresentation(input: KeyPresentationInput): KeyPresenta
     });
   }
 
-  const sourceWarning = input.catalogState !== "fresh"
+  // A stale catalog still contains the last usable, navigable Task list. Its
+  // background refresh retries independently and should not make every key
+  // flash offline while the live desktop connection remains healthy.
+  const sourceWarning = input.catalogState === "incompatible"
     || input.desktopState === "offline"
     || input.desktopState === "incompatible";
   if (input.task === null) {

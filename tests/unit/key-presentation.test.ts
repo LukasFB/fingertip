@@ -56,6 +56,13 @@ test("Key presentation distinguishes loading, authoritative empty, unloaded and 
   assert.deepEqual(projectKeyPresentation({
     catalogState: "stale",
     feedAvailable: true,
+    desktopState: "online",
+    task: { freshness: "fresh", status: "working" },
+  }), { kind: "task", status: "working", offlineWarning: false, navigable: true });
+
+  assert.deepEqual(projectKeyPresentation({
+    catalogState: "stale",
+    feedAvailable: true,
     desktopState: "offline",
     task: { freshness: "stale", status: "working" },
   }), { kind: "task", status: "working", offlineWarning: true, navigable: true });
