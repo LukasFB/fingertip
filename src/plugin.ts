@@ -2,6 +2,10 @@ import { fileURLToPath } from "node:url";
 
 import streamDeck from "@elgato/streamdeck";
 
+import { FastModeKeyAction } from "./actions/fast-mode-key-action.ts";
+import { ModelOptionKeyAction } from "./actions/model-option-key-action.ts";
+import { ModelSelectorBackKeyAction } from "./actions/model-selector-back-key-action.ts";
+import { ModelSelectorKeyAction } from "./actions/model-selector-key-action.ts";
 import { TaskKeyAction } from "./actions/task-key-action.ts";
 import { MacTaskNotifier } from "./notifications/mac-task-notifier.ts";
 import { lockProductionLogLevel } from "./production-logging.ts";
@@ -30,6 +34,10 @@ streamDeck.actions.registerAction(new TaskKeyAction(runtime, (settings) => {
   void appearance.offerLegacyBadges(settings);
   void appearance.offerLegacyOrdering(settings);
 }));
+streamDeck.actions.registerAction(new ModelSelectorKeyAction(runtime));
+streamDeck.actions.registerAction(new ModelOptionKeyAction(runtime));
+streamDeck.actions.registerAction(new FastModeKeyAction(runtime));
+streamDeck.actions.registerAction(new ModelSelectorBackKeyAction());
 streamDeck.settings.onDidReceiveGlobalSettings<TaskKeyAppearanceSettings>((event) => {
   void appearance.receive(event.settings);
 });

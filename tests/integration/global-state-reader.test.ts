@@ -4,7 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { readWorkspaceMetadata } from "../../src/catalog/global-state-reader.ts";
+import {
+  readPersistedStringAtom,
+  readWorkspaceMetadata,
+} from "../../src/catalog/global-state-reader.ts";
 import { parseTaskId } from "../../src/catalog/catalog-projection.ts";
 
 test("global-state reader opens a UID-owned regular file and projects only allowlisted metadata", async (context) => {
@@ -45,6 +48,21 @@ test("global-state reader ignores malformed auxiliary queue metadata", async (co
 
   assert.deepEqual(metadata.savedRoots, ["/Users/test/Project"]);
   assert.equal(metadata.queuedFollowUpCounts.size, 0);
+});
+
+test("global-state reader projects one bounded persisted string atom", async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "fingertip-state-"));
+  context.after(async () => { await import("node:fs/promises").then((fs) => fs.rm(directory, { recursive: true })); });
+  const statePath = path.join(directory, "state.json");
+  await writeFile(statePath, JSON.stringify({
+    "electron-persisted-atom-state": {
+      "composer-model-picker-menu-view-v1": "advanced",
+      secret: "must-not-survive",
+    },
+  }));
+
+  assert.equal(await readPersistedStringAtom(statePath, "composer-model-picker-menu-view-v1"), "advanced");
+  assert.equal(await readPersistedStringAtom(statePath, "missing"), null);
 });
 
 test("global-state reader accepts ChatGPT state files larger than four MiB", async (context) => {

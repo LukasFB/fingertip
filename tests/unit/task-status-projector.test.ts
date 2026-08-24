@@ -79,6 +79,41 @@ test("a rich desktop snapshot is reduced to bounded status facts without private
   assert.equal(JSON.stringify(projected).includes("PRIVATE"), false);
 });
 
+test("Model Selector and Fast Mode settings are projected without retaining other thread settings", () => {
+  const projected = projectStatusSnapshot({
+    threadRuntimeStatus: { type: "idle" },
+    hasUnreadTurn: false,
+    requests: [],
+    latestThreadSettings: {
+      serviceTier: "priority",
+      model: "gpt-5.6-terra",
+      effort: "xhigh",
+      privateSetting: "PRIVATE",
+    },
+  });
+  assert.equal(toTaskLiveFacts(projected).serviceTier, "priority");
+  assert.equal(toTaskLiveFacts(projected).model, "gpt-5.6-terra");
+  assert.equal(toTaskLiveFacts(projected).effort, "xhigh");
+  const patched = applyStatusPatches(projected, [{
+    op: "replace", path: ["latestThreadSettings", "model"], value: "gpt-5.6-luna",
+  }, {
+    op: "replace", path: ["latestThreadSettings", "effort"], value: "high",
+  }, {
+    op: "replace", path: ["latestThreadSettings", "serviceTier"], value: null,
+  }]);
+  assert.equal(toTaskLiveFacts(patched).serviceTier, null);
+  assert.equal(toTaskLiveFacts(patched).model, "gpt-5.6-luna");
+  assert.equal(toTaskLiveFacts(patched).effort, "high");
+  assert.equal(JSON.stringify(patched).includes("PRIVATE"), false);
+
+  const partialSettings = applyStatusPatches(projected, [{
+    op: "replace",
+    path: ["latestThreadSettings"],
+    value: { model: "gpt-5.6-sol", effort: "medium" },
+  }]);
+  assert.equal(toTaskLiveFacts(partialSettings).serviceTier, "priority");
+});
+
 test("only the documented outstanding request categories require attention", () => {
   const snapshot = (requests: unknown[]) => projectStatusSnapshot({
     threadRuntimeStatus: { type: "idle" },

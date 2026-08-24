@@ -8,6 +8,7 @@ import test from "node:test";
 import { parseTaskId } from "../../src/catalog/catalog-projection.ts";
 import { ChatGptDesktopIpcAdapter } from "../../src/desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
 import { encodeIpcFrame, IpcFrameDecoder } from "../../src/desktop-ipc/ipc-framer.ts";
+import { modelSelection } from "../../src/models/model-selection.ts";
 
 function withTimeout<T>(promise: Promise<T>, message: () => string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -256,6 +257,9 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
   await directReceived;
   const unreadTaskId = parseTaskId("00000000-0000-4000-8000-000000000001");
   assert.equal(adapter.markTaskUnread(unreadTaskId), true);
+  assert.equal(await adapter.setModelSelection(unreadTaskId, modelSelection("terra", "xhigh")), true);
+  assert.equal(await adapter.setFastMode(unreadTaskId, true), true);
+  assert.equal(await adapter.setFastMode(unreadTaskId, false), true);
   for (let iteration = 0; iteration < 3; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(clientMessages[0], {
@@ -286,6 +290,34 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     method: "thread-read-state-changed",
     params: { conversationId: unreadTaskId, hostId: "local", hasUnreadTurn: true },
   });
+  const modelRequest = clientMessages.find((message) => {
+    const params = message.params as { threadSettings?: { model?: string } } | undefined;
+    return message.type === "request" && message.method === "thread-follower-update-thread-settings"
+      && params?.threadSettings?.model === "gpt-5.6-terra";
+  });
+  assert.deepEqual(modelRequest, {
+    type: "request",
+    requestId: modelRequest?.requestId,
+    sourceClientId: "desktop-client",
+    version: 1,
+    method: "thread-follower-update-thread-settings",
+    params: {
+      conversationId: unreadTaskId,
+      threadSettings: { model: "gpt-5.6-terra", effort: "xhigh" },
+    },
+  });
+  const serviceTierRequests = clientMessages.filter((message) => {
+    const params = message.params as { threadSettings?: { serviceTier?: unknown } } | undefined;
+    return message.type === "request" && message.method === "thread-follower-update-thread-settings"
+      && "serviceTier" in (params?.threadSettings ?? {});
+  });
+  assert.deepEqual(serviceTierRequests.map((message) => message.params), [{
+    conversationId: unreadTaskId,
+    threadSettings: { serviceTier: "priority" },
+  }, {
+    conversationId: unreadTaskId,
+    threadSettings: { serviceTier: null },
+  }]);
   assert.equal(JSON.stringify(clientMessages).includes("secret"), false);
   assert.deepEqual(records[0], {
     taskId: "00000000-0000-4000-8000-000000000001",
@@ -315,6 +347,57 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     status: "done",
     freshness: "fresh",
   });
+  const recordCountBeforeForeignWindowTraffic = records.length;
+  const activeSocketForForeignWindow = [...serverSockets][0];
+  assert.ok(activeSocketForForeignWindow);
+  activeSocketForForeignWindow.write(Buffer.concat([
+    encodeIpcFrame({
+      type: "broadcast",
+      method: "thread-stream-state-changed",
+      version: 11,
+      sourceClientId: "other-window-owner",
+      targetClientIds: ["other-window-follower"],
+      params: {
+        hostId: "local",
+        conversationId: "00000000-0000-4000-8000-000000000001",
+        change: {
+          type: "snapshot",
+          revision: 1,
+          conversationState: {
+            threadRuntimeStatus: { type: "active", activeFlags: [] },
+            hasUnreadTurn: false,
+            requests: [],
+          },
+        },
+      },
+    }),
+    encodeIpcFrame({
+      type: "broadcast",
+      method: "thread-stream-state-changed",
+      version: 11,
+      sourceClientId: "other-window-owner",
+      targetClientIds: ["other-window-follower"],
+      params: {
+        hostId: "local",
+        conversationId: "00000000-0000-4000-8000-000000000001",
+        change: {
+          type: "snapshot",
+          revision: 2,
+          conversationState: {
+            threadRuntimeStatus: { type: "idle" },
+            hasUnreadTurn: true,
+            requests: [],
+          },
+        },
+      },
+    }),
+  ]));
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(records.length, recordCountBeforeForeignWindowTraffic);
+  assert.equal(adapter.getRecord(unreadTaskId)?.ownerClientId, "owner-client");
+  assert.equal(adapter.getRecord(unreadTaskId)?.status, "done");
   const activeSocketForQueue = [...serverSockets][0];
   assert.ok(activeSocketForQueue);
   const newlySelectedSnapshot = nextRecord();

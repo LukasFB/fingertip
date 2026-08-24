@@ -21,6 +21,10 @@ straight to the exact task you need with one key press.
 - One-key navigation to the exact matching Codex task, with a choice of the
   last-active, leftmost, or rightmost ChatGPT window. Active tasks can open a
   fresh ChatGPT conversation when needed.
+- A Model Selector key opens a bundled Stream Deck XL profile with a 3-by-5
+  Sol, Terra, and Luna matrix for Light, Medium, High, Extra High, and Max thinking.
+  The selected combination is highlighted and applied to the active Composer;
+  a live Fast Mode key toggles that Composer's service tier in place.
 - Single press opens a task, double press highlights it, and long press marks
   it unread.
 - Optional task-owned line-change statistics plus queue and ongoing-goal
@@ -82,12 +86,22 @@ Add or select a Codex Task key in Stream Deck:
 Appearance and notification preferences are global and apply to every Codex
 Task key. Source and task position remain specific to each key.
 
+Add a **Model Selector** key to open the bundled **Codex Model Selector**
+profile. Pressing one of its fifteen model keys updates the currently visible
+ChatGPT task through desktop IPC, or configures a new-task composer before its
+first prompt, and returns to the previous Stream Deck profile. The Fast Mode
+key next to Sol Max follows the currently visible existing task and stays on
+the selector profile so its state can be tested. The bundled matrix targets
+Stream Deck XL. New-task model and thinking selection use Codex's built-in
+`/model` and `/reasoning` menus and require no custom keyboard shortcuts.
+
 ## Development
 
 ```sh
 npm ci
 npm run check
 npm run build
+npm run pack:model-selector-profile
 npx streamdeck validate com.lukas-bhm.fingertip.sdPlugin
 npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 ```

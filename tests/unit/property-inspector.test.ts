@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
@@ -85,7 +86,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(bridge.includes("sessionStorage"), false);
 });
 
-test("manifest exposes only the Codex Task action", async () => {
+test("manifest exposes Codex Task and Model Selector while hiding profile implementation actions", async () => {
   const manifest = JSON.parse(await readFile(
     "com.lukas-bhm.fingertip.sdPlugin/manifest.json",
     "utf8",
@@ -94,11 +95,12 @@ test("manifest exposes only the Codex Task action", async () => {
     Category: string;
     CategoryIcon: string;
     Description: string;
-    Profiles?: unknown;
+    Profiles?: Array<{ Name: string; DeviceType: number; Readonly?: boolean }>;
     Actions: Array<{
       UUID: string;
       Name: string;
       Icon: string;
+      VisibleInActionsList?: boolean;
     }>;
   };
   assert.equal(manifest.Name, "Fingertip Agent");
@@ -108,18 +110,40 @@ test("manifest exposes only the Codex Task action", async () => {
     manifest.Description,
     "See live ChatGPT Codex task status on Stream Deck and open the right task with one press.",
   );
-  assert.equal(manifest.Profiles, undefined);
-  assert.deepEqual(manifest.Actions.map(({ UUID, Name }) => ({ UUID, Name })), [{
+  assert.deepEqual(manifest.Profiles, [{
+    Name: "profiles/codex-model-selector",
+    DeviceType: 2,
+    DontAutoSwitchWhenInstalled: true,
+    Readonly: true,
+  }]);
+  assert.deepEqual(manifest.Actions.filter((entry) => !entry.UUID.endsWith(".model-option")
+    && !entry.UUID.endsWith(".fast-mode")
+    && !entry.UUID.endsWith(".model-selector-back")).map(({ UUID, Name }) => ({ UUID, Name })), [{
     UUID: "com.lukas-bhm.fingertip.task",
     Name: "Codex Task",
+  }, {
+    UUID: "com.lukas-bhm.fingertip.model-selector",
+    Name: "Model Selector",
   }]);
   assert.equal(manifest.Actions[0]?.Icon, "imgs/actions/task/action-list");
+  const profilePage = JSON.parse(execFileSync("/usr/bin/unzip", [
+    "-p",
+    "com.lukas-bhm.fingertip.sdPlugin/profiles/codex-model-selector.streamDeckProfile",
+    "Profiles/6C0D98ED-0AA8-47AA-94D3-530915149F31.sdProfile/Profiles/3AE6A019-ED67-48E8-9BA6-BEE1289442E2/manifest.json",
+  ], { encoding: "utf8" })) as { Controllers: Array<{ Actions: Record<string, { UUID: string }> }> };
+  const actions = profilePage.Controllers[0]?.Actions ?? {};
+  assert.equal(Object.values(actions).filter((entry) => entry.UUID.endsWith(".model-option")).length, 15);
+  assert.equal(actions["5,0"]?.UUID, "com.lukas-bhm.fingertip.fast-mode");
+  assert.equal(actions["7,3"]?.UUID, "com.lukas-bhm.fingertip.model-selector-back");
+  assert.equal(manifest.Actions.find((entry) => entry.UUID.endsWith(".fast-mode"))
+    ?.VisibleInActionsList, false);
 });
 
 test("action-list icons are white SVGs with transparent backgrounds", async () => {
   for (const path of [
     "com.lukas-bhm.fingertip.sdPlugin/imgs/plugin/category-list.svg",
     "com.lukas-bhm.fingertip.sdPlugin/imgs/actions/task/action-list.svg",
+    "com.lukas-bhm.fingertip.sdPlugin/imgs/actions/model-selector/action-list.svg",
   ]) {
     const svg = await readFile(path, "utf8");
     assert.match(svg, /stroke="#FFFFFF"/u);

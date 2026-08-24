@@ -26,7 +26,13 @@ import {
   selectDiagnosticCode,
 } from "../diagnostics/safe-diagnostics.ts";
 import { ChatGptDesktopIpcAdapter, type LiveTaskRecord } from "../desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
+import {
+  modelSelectionImagePath,
+  modelSelectionMatches,
+  type ModelSelection,
+} from "../models/model-selection.ts";
 import { MacTaskNotifier, type TaskNotifier } from "../notifications/mac-task-notifier.ts";
+import type { FastModeVisualState } from "../rendering/fast-mode-key-renderer.ts";
 import { taskTransitionNotification } from "../notifications/task-transition-notification.ts";
 import { projectTaskChangeStats, type TaskChangeStats } from "../task-change-stats.ts";
 import {
@@ -37,6 +43,7 @@ import {
   type TaskKeySettings,
 } from "../settings/task-key-settings.ts";
 import { createKeySnapshot, type KeySnapshot } from "./key-snapshot.ts";
+import { FastModeKeyAnimator } from "./fast-mode-key-animator.ts";
 import type { DesktopState } from "./key-presentation.ts";
 import { TaskKeyRegistry, type TaskKeyActionPort } from "./task-key-registry.ts";
 import { renderSnapshotDataUrl } from "./task-key-render-queue.ts";
@@ -56,6 +63,39 @@ export const UNREAD_NAVIGATION_TIMEOUT_MS = 1_000;
 
 interface PropertyInspectorPort {
   send(payload: JsonValue): Promise<void>;
+}
+
+interface ModelKeyActionPort {
+  readonly id: string;
+  setImage(image: string): Promise<void>;
+  showAlert(): Promise<void>;
+}
+
+interface FastModeEntry {
+  readonly action: ModelKeyActionPort;
+  readonly animator: FastModeKeyAnimator;
+}
+
+interface ModelOptionEntry {
+  readonly action: ModelKeyActionPort;
+  readonly selection: ModelSelection;
+  lastImage: string;
+}
+
+interface KnownModelSettings {
+  readonly model?: string | null | undefined;
+  readonly effort?: string | null | undefined;
+}
+
+type ModelSelectorTarget = Readonly<
+  | { kind: "task"; taskId: TaskId }
+  | { kind: "composer" }
+>;
+
+function modelSelectorTarget(taskId: TaskId | null): ModelSelectorTarget {
+  return taskId === null
+    ? Object.freeze({ kind: "composer" })
+    : Object.freeze({ kind: "task", taskId });
 }
 
 export interface CatalogClientLifecyclePort extends CatalogRpcPort {
@@ -109,6 +149,11 @@ export class FingertipRuntime {
   readonly #registry: TaskKeyRegistry;
   readonly #catalogCompatibility = new CatalogCompatibilityTracker();
   readonly #live = new Map<string, LiveTaskRecord>();
+  readonly #modelSelectorActions = new Map<string, ModelKeyActionPort>();
+  readonly #modelOptionActions = new Map<string, ModelOptionEntry>();
+  readonly #fastModeActions = new Map<string, FastModeEntry>();
+  readonly #knownModelSettings = new Map<TaskId, KnownModelSettings>();
+  readonly #knownServiceTiers = new Map<TaskId, string | null>();
   readonly #liveExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #propertyInspectorConsumers = new Set<string>();
   #catalogView: CatalogView = Object.freeze({ state: "cold", feed: null });
@@ -145,6 +190,8 @@ export class FingertipRuntime {
   readonly #doubleTapTaskIds = new Map<string, TaskId | null>();
   readonly #highlightedTaskIds = new Set<TaskId>();
   readonly #highlightExpiryTimers = new Map<TaskId, ReturnType<typeof setTimeout>>();
+  #modelSelectorTarget: ModelSelectorTarget | null = null;
+  #composerModelSettings: KnownModelSettings | null = null;
 
   constructor(options: Partial<RuntimeOptions> & Pick<RuntimeOptions, "propertyInspector">) {
     this.#options = {
@@ -186,6 +233,15 @@ export class FingertipRuntime {
       const visibleTask = this.#catalogView.feed?.find((task) => task.id === record.taskId
         && visibleTaskIds.has(task.id));
       this.#live.set(record.taskId, record);
+      const knownSettings = this.#knownModelSettings.get(record.taskId);
+      const model = record.facts.model === undefined ? knownSettings?.model : record.facts.model;
+      const effort = record.facts.effort === undefined ? knownSettings?.effort : record.facts.effort;
+      if (model !== undefined || effort !== undefined) {
+        this.#knownModelSettings.set(record.taskId, Object.freeze({ model, effort }));
+      }
+      if (record.facts.serviceTier !== undefined) {
+        this.#knownServiceTiers.set(record.taskId, record.facts.serviceTier);
+      }
       if (this.#catalogService !== null) {
         this.#catalogView = this.#catalogService.rerank(this.#liveStatuses());
         this.#hydrateVisibleTaskStatuses();
@@ -197,7 +253,12 @@ export class FingertipRuntime {
       if (!this.#catalogHas(record.taskId)) this.#scheduleLiveExpiry(record.taskId);
       this.#renderAll();
     });
-    this.#options.desktopIpc.onActiveTask?.(() => this.#renderAll());
+    this.#options.desktopIpc.onActiveTask?.((taskId) => {
+      if (this.#modelOptionActions.size !== 0 || this.#fastModeActions.size !== 0) {
+        this.#modelSelectorTarget = modelSelectorTarget(taskId);
+      }
+      this.#renderAll();
+    });
     this.#options.desktopIpc.onCatalogHint(() => this.#queueCatalogRefresh());
   }
 
@@ -242,6 +303,139 @@ export class FingertipRuntime {
     this.#doubleTapTaskIds.delete(actionId);
     this.#registry.remove(actionId);
     this.#scheduleShutdownIfUnused();
+  }
+
+  attachModelSelectorAction(action: ModelKeyActionPort): void {
+    this.#modelSelectorActions.set(action.id, action);
+    this.#cancelShutdown();
+    this.#ensureStarted();
+    this.#renderModelSelectorActions();
+  }
+
+  detachModelSelectorAction(actionId: string): void {
+    this.#modelSelectorActions.delete(actionId);
+    this.#scheduleShutdownIfUnused();
+  }
+
+  attachModelOptionAction(action: ModelKeyActionPort, selection: ModelSelection): void {
+    this.#modelOptionActions.set(action.id, { action, selection, lastImage: "" });
+    if (this.#modelSelectorTarget === null) {
+      this.#modelSelectorTarget = modelSelectorTarget(this.#options.desktopIpc.activeTaskId);
+    }
+    this.#cancelShutdown();
+    this.#ensureStarted();
+    this.#renderModelOptionActions();
+  }
+
+  detachModelOptionAction(actionId: string): void {
+    this.#modelOptionActions.delete(actionId);
+    if (this.#modelOptionActions.size === 0 && this.#fastModeActions.size === 0) {
+      this.#modelSelectorTarget = null;
+    }
+    this.#scheduleShutdownIfUnused();
+  }
+
+  attachFastModeAction(action: ModelKeyActionPort): void {
+    const existing = this.#fastModeActions.get(action.id);
+    if (existing === undefined) {
+      this.#fastModeActions.set(action.id, {
+        action,
+        animator: new FastModeKeyAnimator(action, {
+          setTimer: this.#options.setTimer,
+          clearTimer: this.#options.clearTimer,
+        }),
+      });
+    }
+    if (this.#modelSelectorTarget === null) {
+      this.#modelSelectorTarget = modelSelectorTarget(this.#options.desktopIpc.activeTaskId);
+    }
+    this.#cancelShutdown();
+    this.#ensureStarted();
+    this.#renderFastModeActions();
+  }
+
+  detachFastModeAction(actionId: string): void {
+    this.#fastModeActions.get(actionId)?.animator.dispose();
+    this.#fastModeActions.delete(actionId);
+    if (this.#modelOptionActions.size === 0 && this.#fastModeActions.size === 0) {
+      this.#modelSelectorTarget = null;
+    }
+    this.#scheduleShutdownIfUnused();
+  }
+
+  async prepareModelSelector(): Promise<boolean> {
+    this.#modelSelectorTarget = await this.#activateModelTarget();
+    this.#renderModelOptionActions();
+    this.#renderFastModeActions();
+    return this.#modelSelectorTarget !== null;
+  }
+
+  async pressModelSelection(selection: ModelSelection): Promise<boolean> {
+    const target = await this.#activateModelTarget();
+    this.#modelSelectorTarget = target;
+    this.#renderModelOptionActions();
+    this.#renderFastModeActions();
+    if (target === null) return false;
+    const succeeded = target.kind === "task"
+      ? await this.#options.desktopIpc.setModelSelection(target.taskId, selection)
+      : await this.#options.navigation.setComposerModelSelection(selection);
+    if (succeeded) {
+      const settings = Object.freeze({
+        model: selection.model,
+        effort: selection.effort,
+      });
+      if (target.kind === "task") this.#knownModelSettings.set(target.taskId, settings);
+      else this.#composerModelSettings = settings;
+      this.#renderModelOptionActions();
+    }
+    return succeeded;
+  }
+
+  async pressFastMode(): Promise<boolean> {
+    const target = await this.#activateModelTarget();
+    this.#modelSelectorTarget = target;
+    this.#renderModelOptionActions();
+    this.#renderFastModeActions();
+    if (target === null || target.kind === "composer") return false;
+    const enabled = this.#knownServiceTiers.get(target.taskId) !== "priority";
+    const succeeded = await this.#options.desktopIpc.setFastMode(target.taskId, enabled);
+    if (succeeded) {
+      this.#knownServiceTiers.set(target.taskId, enabled ? "priority" : null);
+      this.#renderFastModeActions();
+    }
+    return succeeded;
+  }
+
+  async #activateModelTarget(): Promise<ModelSelectorTarget | null> {
+    const waitsForPhysicalWindow = this.#options.navigation.windowTarget !== "last-active";
+    // Once the selector profile is open, its target is updated by the live
+    // onActiveTask listener. Preserve that snapshot for the last-active
+    // window instead of replacing a new Composer with a briefly stale Task ID
+    // while Codex is changing views.
+    const preparedTarget = this.#modelSelectorTarget;
+    let resolveActiveTask: ((taskId: TaskId | null) => void) | undefined;
+    const activeTask = new Promise<TaskId | null>((resolve) => { resolveActiveTask = resolve; });
+    const unsubscribe = waitsForPhysicalWindow
+      ? this.#options.desktopIpc.onActiveTask?.((taskId) => resolveActiveTask?.(taskId))
+      : undefined;
+    const activated = await this.#options.navigation.activateTargetWindow();
+    if (!activated) {
+      unsubscribe?.();
+      return null;
+    }
+    if (!waitsForPhysicalWindow) {
+      return preparedTarget ?? modelSelectorTarget(this.#options.desktopIpc.activeTaskId);
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const selectedTask = await Promise.race([
+      activeTask,
+      new Promise<TaskId | null>((resolve) => {
+        timer = this.#options.setTimer(() => resolve(this.#options.desktopIpc.activeTaskId), 350);
+      }),
+    ]);
+    if (timer !== undefined) this.#options.clearTimer(timer);
+    unsubscribe?.();
+    return modelSelectorTarget(selectedTask);
   }
 
   keyDown(actionId: string): void {
@@ -437,6 +631,14 @@ export class FingertipRuntime {
     this.#stopWorkspaceMetadataWatch?.();
     this.#stopWorkspaceMetadataWatch = null;
     this.#registry.clear();
+    this.#modelSelectorActions.clear();
+    this.#modelOptionActions.clear();
+    for (const entry of this.#fastModeActions.values()) entry.animator.dispose();
+    this.#fastModeActions.clear();
+    this.#knownModelSettings.clear();
+    this.#knownServiceTiers.clear();
+    this.#modelSelectorTarget = null;
+    this.#composerModelSettings = null;
     this.#propertyInspectorConsumers.clear();
     this.#live.clear();
     this.#catalogView = Object.freeze({ state: "cold", feed: null });
@@ -760,8 +962,53 @@ export class FingertipRuntime {
 
   #renderAll(): void {
     this.#registry.render((settings) => this.#snapshot(settings));
+    this.#renderModelSelectorActions();
+    this.#renderModelOptionActions();
+    this.#renderFastModeActions();
     for (const entry of this.#registry.entries()) {
       void entry.queue.whenIdle().then(() => this.#sendPropertyInspector(entry.action.id));
+    }
+  }
+
+  #renderModelSelectorActions(): void {
+    const image = this.#desktopState === "online"
+      ? "imgs/actions/model-selector/key.png"
+      : "imgs/actions/model-selector/key-offline.png";
+    for (const action of this.#modelSelectorActions.values()) {
+      void action.setImage(image).catch(() => undefined);
+    }
+  }
+
+  #renderModelOptionActions(): void {
+    const target = this.#modelSelectorTarget;
+    const settings = target === null
+      ? null
+      : target.kind === "composer"
+        ? this.#composerModelSettings
+        : this.#knownModelSettings.get(target.taskId) ?? null;
+    for (const entry of this.#modelOptionActions.values()) {
+      const selected = settings !== null && modelSelectionMatches(entry.selection, settings);
+      const image = modelSelectionImagePath(entry.selection, selected);
+      if (image === entry.lastImage) continue;
+      entry.lastImage = image;
+      void entry.action.setImage(image).catch(() => { entry.lastImage = ""; });
+    }
+  }
+
+  #renderFastModeActions(): void {
+    const target = this.#modelSelectorTarget;
+    const taskId = target?.kind === "task" ? target.taskId : null;
+    let state: FastModeVisualState = "unknown";
+    if (this.#desktopState === "online" && taskId !== null && this.#knownServiceTiers.has(taskId)) {
+      state = this.#knownServiceTiers.get(taskId) === "priority" ? "fast" : "standard";
+    }
+    const signature = JSON.stringify({ target, state, desktopState: this.#desktopState });
+    for (const entry of this.#fastModeActions.values()) {
+      entry.animator.render({
+        signature,
+        state,
+        offline: this.#desktopState !== "online",
+      });
     }
   }
 
@@ -946,6 +1193,8 @@ export class FingertipRuntime {
 
   #scheduleShutdownIfUnused(): void {
     if (this.#registry.size !== 0 || this.#propertyInspectorConsumers.size !== 0
+      || this.#modelSelectorActions.size !== 0 || this.#modelOptionActions.size !== 0
+      || this.#fastModeActions.size !== 0
       || this.#shutdownTimer !== null) return;
     this.#shutdownTimer = this.#options.setTimer(() => this.shutdown(), 30_000);
   }

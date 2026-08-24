@@ -15,11 +15,13 @@ interface GlobalStateReaderOptions {
   readonly sleep: (delayMs: number) => Promise<void>;
 }
 
+type GlobalStateProjection<T> = (value: unknown) => T;
+
 function defaultSleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-async function readOnce(filePath: string): Promise<WorkspaceMetadata> {
+async function readOnce<T>(filePath: string, project: GlobalStateProjection<T>): Promise<T> {
   const noFollow = constants.O_NOFOLLOW ?? 0;
   const handle = await open(filePath, constants.O_RDONLY | noFollow);
   try {
@@ -38,24 +40,53 @@ async function readOnce(filePath: string): Promise<WorkspaceMetadata> {
     } catch {
       throw new Error("invalid global-state JSON");
     }
-    return projectWorkspaceMetadata(value);
+    return project(value);
   } finally {
     await handle.close();
   }
 }
 
-export async function readWorkspaceMetadata(
+async function readGlobalStateProjection<T>(
   filePath: string,
+  project: GlobalStateProjection<T>,
   options?: Partial<GlobalStateReaderOptions>,
-): Promise<WorkspaceMetadata> {
+): Promise<T> {
   const sleep = options?.sleep ?? defaultSleep;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await readOnce(filePath);
+      return await readOnce(filePath, project);
     } catch (error) {
       if (!(error instanceof ReplacementRaceError) || attempt === 2) throw error;
       await sleep(100);
     }
   }
   throw new Error("global-state read failed");
+}
+
+export function readWorkspaceMetadata(
+  filePath: string,
+  options?: Partial<GlobalStateReaderOptions>,
+): Promise<WorkspaceMetadata> {
+  return readGlobalStateProjection(filePath, projectWorkspaceMetadata, options);
+}
+
+export function readPersistedStringAtom(
+  filePath: string,
+  key: string,
+  options?: Partial<GlobalStateReaderOptions>,
+): Promise<string | null> {
+  if (key.length === 0 || Buffer.byteLength(key, "utf8") > 128) {
+    return Promise.reject(new TypeError("invalid persisted atom key"));
+  }
+  return readGlobalStateProjection(filePath, (value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new TypeError("global state must be an object");
+    }
+    const atoms = (value as Record<string, unknown>)["electron-persisted-atom-state"];
+    if (typeof atoms !== "object" || atoms === null || Array.isArray(atoms)) return null;
+    const candidate = (atoms as Record<string, unknown>)[key];
+    return typeof candidate === "string" && Buffer.byteLength(candidate, "utf8") <= 128
+      ? candidate
+      : null;
+  }, options);
 }

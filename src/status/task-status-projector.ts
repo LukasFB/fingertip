@@ -6,6 +6,9 @@ export interface TaskLiveFacts {
   readonly waitingOnUserInput: boolean;
   readonly hasUnreadTurn: boolean;
   readonly hasQueuedFollowUp?: boolean;
+  readonly serviceTier?: string | null | undefined;
+  readonly model?: string | null | undefined;
+  readonly effort?: string | null | undefined;
 }
 
 export type RuntimeKind = "active" | "idle" | "notLoaded" | "systemError";
@@ -18,6 +21,9 @@ export interface ProjectedStatusState {
     readonly activeFlags: readonly ActiveFlag[];
   };
   readonly hasUnreadTurn: boolean;
+  readonly serviceTier: string | null | undefined;
+  readonly model: string | null | undefined;
+  readonly effort: string | null | undefined;
   readonly requestSlots: readonly {
     readonly category: RequestCategory;
     readonly completed: boolean;
@@ -108,12 +114,36 @@ function parseRequests(value: unknown): ProjectedStatusState["requestSlots"] {
   return Object.freeze(value.map(parseRequest));
 }
 
+function parseThreadSetting(value: unknown, label: string, maximumBytes: number): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== "string" || value.length === 0 || Buffer.byteLength(value, "utf8") > maximumBytes) {
+    fail(`invalid ${label}`);
+  }
+  return value;
+}
+
+function projectThreadSettings(
+  value: unknown,
+): Pick<ProjectedStatusState, "serviceTier" | "model" | "effort"> {
+  if (value === undefined) {
+    return Object.freeze({ serviceTier: undefined, model: undefined, effort: undefined });
+  }
+  if (!isRecord(value)) fail("latestThreadSettings must be an object");
+  return Object.freeze({
+    serviceTier: parseThreadSetting(value.serviceTier, "service tier", 64),
+    model: parseThreadSetting(value.model, "model", 128),
+    effort: parseThreadSetting(value.effort, "effort", 32),
+  });
+}
+
 export function projectStatusSnapshot(value: unknown): ProjectedStatusState {
   if (!isRecord(value)) fail("conversationState must be an object");
   if (typeof value.hasUnreadTurn !== "boolean") fail("hasUnreadTurn must be boolean");
+  const threadSettings = projectThreadSettings(value.latestThreadSettings);
   return Object.freeze({
     runtime: parseRuntime(value.threadRuntimeStatus),
     hasUnreadTurn: value.hasUnreadTurn,
+    ...threadSettings,
     requestSlots: parseRequests(value.requests),
   });
 }
@@ -125,6 +155,9 @@ export function toTaskLiveFacts(state: ProjectedStatusState): TaskLiveFacts {
     waitingOnApproval: state.runtime.activeFlags.includes("waitingOnApproval") || pending.includes("confirmation"),
     waitingOnUserInput: state.runtime.activeFlags.includes("waitingOnUserInput") || pending.includes("waiting"),
     hasUnreadTurn: state.hasUnreadTurn,
+    ...(state.serviceTier === undefined ? {} : { serviceTier: state.serviceTier }),
+    ...(state.model === undefined ? {} : { model: state.model }),
+    ...(state.effort === undefined ? {} : { effort: state.effort }),
   });
 }
 
@@ -150,6 +183,9 @@ export function applyStatusPatches(
     activeFlags: [...state.runtime.activeFlags],
   };
   let hasUnreadTurn = state.hasUnreadTurn;
+  let serviceTier = state.serviceTier;
+  let model = state.model;
+  let effort = state.effort;
   const requestSlots = state.requestSlots.map((slot) => ({ ...slot }));
 
   for (const candidate of value) {
@@ -161,7 +197,30 @@ export function applyStatusPatches(
     }
     const patch = candidate as unknown as StatusPatch;
     const root = patch.path[0];
-    if (root !== "threadRuntimeStatus" && root !== "hasUnreadTurn" && root !== "requests") continue;
+    if (root !== "threadRuntimeStatus" && root !== "hasUnreadTurn"
+      && root !== "requests" && root !== "latestThreadSettings") continue;
+
+    if (root === "latestThreadSettings") {
+      if (patch.path.length === 1) {
+        if (patch.op === "remove") {
+          serviceTier = undefined;
+          model = undefined;
+          effort = undefined;
+        } else {
+          const settings = projectThreadSettings(requirePatchValue(patch));
+          if (settings.serviceTier !== undefined) serviceTier = settings.serviceTier;
+          if (settings.model !== undefined) model = settings.model;
+          if (settings.effort !== undefined) effort = settings.effort;
+        }
+      } else if (patch.path.length === 2) {
+        const next = patch.op === "remove" ? null : requirePatchValue(patch);
+        if (patch.path[1] === "serviceTier") {
+          serviceTier = parseThreadSetting(next, "service tier", 64);
+        } else if (patch.path[1] === "model") model = parseThreadSetting(next, "model", 128);
+        else if (patch.path[1] === "effort") effort = parseThreadSetting(next, "effort", 32);
+      }
+      continue;
+    }
 
     if (root === "threadRuntimeStatus") {
       if (patch.path.length === 1) {
@@ -229,6 +288,9 @@ export function applyStatusPatches(
   return Object.freeze({
     runtime: Object.freeze({ type: runtime.type, activeFlags: Object.freeze(runtime.activeFlags) }),
     hasUnreadTurn,
+    serviceTier,
+    model,
+    effort,
     requestSlots: Object.freeze(requestSlots.map((slot) => Object.freeze(slot))),
   });
 }

@@ -27,6 +27,14 @@
       "com.openai.codex"
     ]
   },
+  "Profiles": [
+    {
+      "Name": "profiles/codex-model-selector",
+      "DeviceType": 2,
+      "DontAutoSwitchWhenInstalled": true,
+      "Readonly": true
+    }
+  ],
   "Actions": [
     {
       "UUID": "com.lukas-bhm.fingertip.task",
@@ -42,6 +50,73 @@
       "States": [
         {
           "Image": "imgs/actions/task/key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.lukas-bhm.fingertip.model-selector",
+      "Name": "Model Selector",
+      "Icon": "imgs/actions/model-selector/action-list",
+      "Tooltip": "Selects the model and thinking level for the active ChatGPT Task.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "imgs/actions/model-selector/key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.lukas-bhm.fingertip.model-option",
+      "Name": "Model Option",
+      "Icon": "imgs/actions/model-selector/action-list",
+      "Tooltip": "Sets the model and thinking level for the active ChatGPT Task.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "VisibleInActionsList": false,
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "imgs/actions/model-options/sol-low"
+        }
+      ]
+    },
+    {
+      "UUID": "com.lukas-bhm.fingertip.fast-mode",
+      "Name": "Fast Mode",
+      "Icon": "imgs/actions/model-selector/action-list",
+      "Tooltip": "Toggles Fast Mode for the Task targeted by Model Selector.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "VisibleInActionsList": false,
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "imgs/actions/model-selector/key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.lukas-bhm.fingertip.model-selector-back",
+      "Name": "Back",
+      "Icon": "imgs/actions/model-selector/action-list",
+      "Tooltip": "Returns to the previous Stream Deck profile.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "VisibleInActionsList": false,
+      "UserTitleEnabled": false,
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "imgs/actions/model-selector/back"
         }
       ]
     }
