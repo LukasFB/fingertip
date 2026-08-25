@@ -22,3 +22,7 @@ The immutable source artwork is stored in `bases/`, so repeated runs never use a
 previously generated output as their input.
 
 Requirements: macOS, Xcode command-line tools, Node.js 24+, and ImageMagick.
+
+`npm run generate:release-gallery` builds the version-stamped settings images
+and the Model Selector gallery image. The latter uses the high-resolution
+selector capture in `bases/model-selector-ui.png`.

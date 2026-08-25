@@ -43,6 +43,8 @@ straight to the exact task you need with one key press.
 
 ![Done and blocked notification settings](marketplace-assets/gallery-6-settings-notifications.png)
 
+![Model Selector profile](marketplace-assets/gallery-7-model-selector.png)
+
 Native Toast notifications follow the notification style configured in macOS:
 Temporary notifications disappear automatically, while Persistent
 notifications remain until dismissed. Audio files are copied locally; accepted
@@ -108,6 +110,15 @@ npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 
 Use `npm run reload` to build and restart the linked plugin during local
 development.
+
+## Version 1.1.0
+
+- Added a bundled Stream Deck XL Model Selector with Sol, Terra, and Luna
+  across Light, Medium, High, Extra High, and Max thinking levels.
+- Highlighted the active model combination and applied selections directly to
+  the visible ChatGPT task or to a new Composer before its first prompt.
+- Added a live Fast Mode key that follows the targeted task and toggles its
+  service tier without leaving the selector profile.
 
 ## Version 1.0.5
 

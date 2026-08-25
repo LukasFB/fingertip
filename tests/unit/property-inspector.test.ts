@@ -108,7 +108,7 @@ test("manifest exposes Codex Task and Model Selector while hiding profile implem
   assert.equal(manifest.CategoryIcon, "imgs/plugin/category-list");
   assert.equal(
     manifest.Description,
-    "See live ChatGPT Codex task status on Stream Deck and open the right task with one press.",
+    "See live ChatGPT Codex task status, open the right task, and select its model and thinking level from Stream Deck.",
   );
   assert.deepEqual(manifest.Profiles, [{
     Name: "profiles/codex-model-selector",
