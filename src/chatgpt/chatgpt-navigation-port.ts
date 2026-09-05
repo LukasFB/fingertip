@@ -92,7 +92,7 @@ export function composerModelSelectionScript(selection: ModelSelection): string 
   const effortIndex = MODEL_EFFORTS.indexOf(selection.effort);
   const resetModelSteps = keyCodeLines(126, MODEL_MENU_RESET_STEPS);
   const resetEffortSteps = keyCodeLines(126, EFFORT_MENU_RESET_STEPS);
-  // The /model picker exposes one keyboard-selectable control before Sol.
+  // The /model picker exposes one keyboard-selectable control before the first model.
   // Reset to the top, skip that control, then count within our model matrix.
   const modelSteps = keyCodeLines(125, modelIndex + 1);
   const effortSteps = keyCodeLines(125, effortIndex);

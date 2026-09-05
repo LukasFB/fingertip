@@ -1,6 +1,6 @@
 {
   "name": "fingertip-agent",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "npm run build-audio-helper && rollup -c",
+    "build": "npm run pack:model-selector-profile && npm run build-audio-helper && rollup -c",
     "build-audio-helper": "bash scripts/build-audio-helper.sh",
     "generate:marketplace-assets": "node scripts/generate-marketplace-assets.mjs",
     "generate:release-gallery": "node scripts/generate-release-gallery.mjs",

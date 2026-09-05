@@ -12,6 +12,7 @@ const selectorOutputRoot = path.join(outputRoot, "model-selector");
 const stage = await mkdtemp(path.join(os.tmpdir(), "fingertip-model-assets-"));
 
 const families = Object.freeze({
+  astra: { label: "ASTRA 6", accent: "#ffffff" },
   sol: { label: "SOL", accent: "#ffb224" },
   terra: { label: "TERRA", accent: "#45e6ff" },
   luna: { label: "LUNA", accent: "#c8a6ff" },

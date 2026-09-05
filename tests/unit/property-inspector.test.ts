@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+import { MODEL_SELECTOR_PROFILE } from "../../src/models/model-selector-profile.ts";
+
 test("Property Inspector is fully local and exposes only the approved controls and notice", async () => {
   const html = await readFile("com.lukas-bhm.fingertip.sdPlugin/ui/task-key.html", "utf8");
   const bridge = await readFile("com.lukas-bhm.fingertip.sdPlugin/ui/sdpi-components.js", "utf8");
@@ -111,7 +113,8 @@ test("manifest exposes Codex Task and Model Selector while hiding profile implem
     "See live ChatGPT Codex task status, open the right task, and select its model and thinking level from Stream Deck.",
   );
   assert.deepEqual(manifest.Profiles, [{
-    Name: "profiles/codex-model-selector",
+    Name: MODEL_SELECTOR_PROFILE.name,
+    AutoInstall: true,
     DeviceType: 2,
     DontAutoSwitchWhenInstalled: true,
     Readonly: true,
@@ -128,11 +131,16 @@ test("manifest exposes Codex Task and Model Selector while hiding profile implem
   assert.equal(manifest.Actions[0]?.Icon, "imgs/actions/task/action-list");
   const profilePage = JSON.parse(execFileSync("/usr/bin/unzip", [
     "-p",
-    "com.lukas-bhm.fingertip.sdPlugin/profiles/codex-model-selector.streamDeckProfile",
-    "Profiles/6C0D98ED-0AA8-47AA-94D3-530915149F31.sdProfile/Profiles/3AE6A019-ED67-48E8-9BA6-BEE1289442E2/manifest.json",
-  ], { encoding: "utf8" })) as { Controllers: Array<{ Actions: Record<string, { UUID: string }> }> };
+    `com.lukas-bhm.fingertip.sdPlugin/${MODEL_SELECTOR_PROFILE.name}.streamDeckProfile`,
+    `Profiles/${MODEL_SELECTOR_PROFILE.profileId}.sdProfile/Profiles/${MODEL_SELECTOR_PROFILE.pageId}/manifest.json`,
+  ], { encoding: "utf8" })) as { Controllers: Array<{ Actions: Record<string, { UUID: string; Settings: { family?: string; effort?: string } }> }> };
   const actions = profilePage.Controllers[0]?.Actions ?? {};
-  assert.equal(Object.values(actions).filter((entry) => entry.UUID.endsWith(".model-option")).length, 15);
+  assert.equal(Object.values(actions).filter((entry) => entry.UUID.endsWith(".model-option")).length, 20);
+  for (const [row, family] of ["astra", "sol", "terra", "luna"].entries()) {
+    for (const [column, effort] of ["low", "medium", "high", "xhigh", "max"].entries()) {
+      assert.deepEqual(actions[`${column},${row}`]?.Settings, { family, effort });
+    }
+  }
   assert.equal(actions["5,0"]?.UUID, "com.lukas-bhm.fingertip.fast-mode");
   assert.equal(actions["7,3"]?.UUID, "com.lukas-bhm.fingertip.model-selector-back");
   assert.equal(manifest.Actions.find((entry) => entry.UUID.endsWith(".fast-mode"))

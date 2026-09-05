@@ -183,7 +183,7 @@ test("composer model selection uses portable slash commands and absolute menu po
   assert.equal(calls[0]?.[0], "/usr/bin/osascript");
   const script = (calls[0]?.[1] as readonly string[] | undefined)?.[1] ?? "";
   assert.match(script, /keystroke " \/model"\s+delay 0\.16\s+key code 36\s+delay 0\.18\s+key code 126/u);
-  assert.match(script, /key code 126\s+key code 125\s+key code 125\s+key code 125\s+key code 36\s+delay 0\.16/u);
+  assert.match(script, /key code 126\s+key code 125\s+key code 125\s+key code 125\s+key code 125\s+key code 36\s+delay 0\.16/u);
   assert.match(script, /keystroke "\/reasoning"\s+delay 0\.16\s+key code 36\s+delay 0\.18\s+key code 126/u);
   assert.match(script, /key code 126\s+key code 125\s+key code 125\s+key code 125\s+key code 125\s+key code 36/u);
   assert.match(script, /key code 36\s+delay 0\.08\s+key code 51/u);
@@ -192,7 +192,7 @@ test("composer model selection uses portable slash commands and absolute menu po
   assert.doesNotMatch(script, /key code 53/u);
 });
 
-test("composer model selection keeps Sol and Light at the first menu entries", async () => {
+test("composer model selection keeps Astra and Light at the first menu entries", async () => {
   const calls: unknown[][] = [];
   const spawn: SpawnProcess = (command, args, options) => {
     calls.push([command, args, options]);
@@ -202,7 +202,7 @@ test("composer model selection keeps Sol and Light at the first menu entries", a
   };
   const port = new ChatGptNavigationPort({ spawn });
 
-  assert.equal(await port.setComposerModelSelection(modelSelection("sol", "low")), true);
+  assert.equal(await port.setComposerModelSelection(modelSelection("astra", "low")), true);
   const script = (calls[0]?.[1] as readonly string[] | undefined)?.[1] ?? "";
   assert.match(script, /keystroke " \/model"/u);
   assert.match(script, /keystroke "\/reasoning"/u);

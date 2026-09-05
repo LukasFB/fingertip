@@ -11,24 +11,25 @@ import {
   normalizeModelSelection,
 } from "../../src/models/model-selection.ts";
 
-test("the selector exposes the approved 3 by 5 model matrix", () => {
-  assert.deepEqual(MODEL_FAMILIES, ["sol", "terra", "luna"]);
+test("the selector exposes the approved 4 by 5 model matrix", () => {
+  assert.deepEqual(MODEL_FAMILIES, ["astra", "sol", "terra", "luna"]);
   assert.deepEqual(MODEL_EFFORTS, ["low", "medium", "high", "xhigh", "max"]);
   const matrix = MODEL_FAMILIES.flatMap((family) =>
     MODEL_EFFORTS.map((effort) => modelSelection(family, effort)));
-  assert.equal(matrix.length, 15);
+  assert.equal(matrix.length, 20);
   assert.deepEqual(matrix[0], {
-    family: "sol",
-    model: "gpt-5.6-sol",
+    family: "astra",
+    model: "gpt-6-astra",
     effort: "low",
-    modelLabel: "SOL",
+    modelLabel: "ASTRA 6",
     effortLabel: "LIGHT",
   });
+  assert.equal(modelSelection("sol", "high").model, "gpt-5.6-sol");
   assert.equal(matrix.at(-1)?.effortLabel, "MAX");
-  assert.equal(modelSelectionImagePath(matrix[6]!), "imgs/actions/model-options/terra-medium.png");
-  assert.equal(modelSelectionImagePath(matrix[6]!, true),
+  assert.equal(modelSelectionImagePath(matrix[11]!), "imgs/actions/model-options/terra-medium.png");
+  assert.equal(modelSelectionImagePath(matrix[11]!, true),
     "imgs/actions/model-options/terra-medium-selected.png");
-  assert.equal(modelSelectionMatches(matrix[6]!, {
+  assert.equal(modelSelectionMatches(matrix[11]!, {
     model: "gpt-5.6-terra",
     effort: "medium",
   }), true);

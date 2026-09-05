@@ -106,10 +106,10 @@ test("Model Selector follows the currently visible Task and updates the selected
   assert.equal(fastModeImages.at(-1)?.includes('data-animation="fast-electric"'), true);
   assert.equal(fastModeImages.at(-1)?.includes("<text"), false);
 
-  assert.equal(await runtime.pressModelSelection(modelSelection("sol", "high")), true);
+  assert.equal(await runtime.pressModelSelection(modelSelection("astra", "high")), true);
   assert.deepEqual(updates, [{
     taskId: switchedTaskId,
-    model: "gpt-5.6-sol",
+    model: "gpt-6-astra",
     effort: "high",
   }]);
   assert.equal(selectorImages.at(-1), "imgs/actions/model-selector/key.png");

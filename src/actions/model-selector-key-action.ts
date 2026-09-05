@@ -7,9 +7,8 @@ import streamDeck, {
 } from "@elgato/streamdeck";
 import type { JsonObject } from "@elgato/utils";
 
+import { MODEL_SELECTOR_PROFILE } from "../models/model-selector-profile.ts";
 import type { FingertipRuntime } from "../runtime/fingertip-runtime.ts";
-
-const MODEL_SELECTOR_PROFILE = "profiles/codex-model-selector";
 
 @action({ UUID: "com.lukas-bhm.fingertip.model-selector" })
 export class ModelSelectorKeyAction extends SingletonAction<JsonObject> {
@@ -29,7 +28,7 @@ export class ModelSelectorKeyAction extends SingletonAction<JsonObject> {
         await event.action.showAlert().catch(() => undefined);
         return;
       }
-      await streamDeck.profiles.switchToProfile(event.action.device.id, MODEL_SELECTOR_PROFILE);
+      await streamDeck.profiles.switchToProfile(event.action.device.id, MODEL_SELECTOR_PROFILE.name, 0);
     } catch {
       await event.action.showAlert().catch(() => undefined);
     }

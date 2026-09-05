@@ -1,14 +1,21 @@
-export const MODEL_FAMILIES = ["sol", "terra", "luna"] as const;
+export const MODEL_FAMILIES = ["astra", "sol", "terra", "luna"] as const;
 export const MODEL_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 export type ModelFamily = typeof MODEL_FAMILIES[number];
 export type ModelEffort = typeof MODEL_EFFORTS[number];
 
+const MODEL_IDS = {
+  astra: "gpt-6-astra",
+  sol: "gpt-5.6-sol",
+  terra: "gpt-5.6-terra",
+  luna: "gpt-5.6-luna",
+} as const;
+
 export interface ModelSelection {
   readonly family: ModelFamily;
-  readonly model: `gpt-5.6-${ModelFamily}`;
+  readonly model: typeof MODEL_IDS[ModelFamily];
   readonly effort: ModelEffort;
-  readonly modelLabel: "SOL" | "TERRA" | "LUNA";
+  readonly modelLabel: "ASTRA 6" | "SOL" | "TERRA" | "LUNA";
   readonly effortLabel: "LIGHT" | "MEDIUM" | "HIGH" | "EXTRA HIGH" | "MAX";
 }
 
@@ -23,9 +30,9 @@ const effortLabels: Readonly<Record<ModelEffort, ModelSelection["effortLabel"]>>
 export function modelSelection(family: ModelFamily, effort: ModelEffort): ModelSelection {
   return Object.freeze({
     family,
-    model: `gpt-5.6-${family}`,
+    model: MODEL_IDS[family],
     effort,
-    modelLabel: family.toUpperCase() as ModelSelection["modelLabel"],
+    modelLabel: family === "astra" ? "ASTRA 6" : family.toUpperCase() as ModelSelection["modelLabel"],
     effortLabel: effortLabels[effort],
   });
 }

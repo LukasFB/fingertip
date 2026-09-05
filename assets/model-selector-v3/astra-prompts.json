@@ -1,0 +1,25 @@
+{
+  "tool": "built-in image_gen",
+  "prompts": [
+    {
+      "effort": "low",
+      "prompt": "Use case: stylized-concept. Asset type: ASTRA 6 Stream Deck model selector key background, low reasoning tier. Create a single square cinematic deep-space image: a solitary brilliant white star surrounded by a delicate small spherical constellation of white pinpoints. Epic premium astronomical imagery inspired by a spherical constellation on black. Strictly achromatic black, grey and white, absolutely no color. Pure black backdrop, strong readable silhouette at tiny icon scale, restrained glow, crisp stars. Center subject at x=50%, y=35%, contained in top 65% of square; bottom 30% is pure black negative space for labels added separately. No text, no logos, no border, no watermark."
+    },
+    {
+      "effort": "medium",
+      "prompt": "Use case: stylized-concept. Asset type: ASTRA 6 Stream Deck model selector key background, medium reasoning tier. Create a single square cinematic deep-space image: an elegant orbiting spherical cluster of bright white stars with two flowing spiral arcs. Epic premium astronomical imagery inspired by a spherical constellation on black. Strictly achromatic black, grey and white, absolutely no color. Pure black backdrop, strong readable silhouette at tiny icon scale, restrained glow, crisp stars. Center subject at x=50%, y=35%, contained in top 65% of square; bottom 30% is pure black negative space for labels added separately. No text, no logos, no border, no watermark."
+    },
+    {
+      "effort": "high",
+      "prompt": "Use case: stylized-concept. Asset type: ASTRA 6 Stream Deck model selector key background, high reasoning tier. Create a single square cinematic deep-space image: a majestic dense globular star cluster with sweeping intertwined stellar streams forming a luminous sphere. Epic premium astronomical imagery inspired by a spherical constellation on black. Strictly achromatic black, grey and white, absolutely no color. Pure black backdrop, strong readable silhouette at tiny icon scale, restrained glow, crisp stars. Center subject at x=50%, y=35%, contained in top 65% of square; bottom 30% is pure black negative space for labels added separately. No text, no logos, no border, no watermark."
+    },
+    {
+      "effort": "xhigh",
+      "prompt": "Use case: stylized-concept. Asset type: ASTRA 6 Stream Deck model selector key background, xhigh reasoning tier. Create a single square cinematic deep-space image: an immense celestial vortex, concentric swirling streams of white stars around a brilliant core, powerful and grand. Epic premium astronomical imagery inspired by a spherical constellation on black. Strictly achromatic black, grey and white, absolutely no color. Pure black backdrop, strong readable silhouette at tiny icon scale, restrained glow, crisp stars. Center subject at x=50%, y=35%, contained in top 65% of square; bottom 30% is pure black negative space for labels added separately. No text, no logos, no border, no watermark."
+    },
+    {
+      "effort": "max",
+      "prompt": "Use case: stylized-concept. Asset type: ASTRA 6 Stream Deck model selector key background, max reasoning tier. Create a single square cinematic deep-space image: an awe-inspiring cosmic crown of countless white stars exploding into radiant curved filaments around a blazing stellar sphere, the grandest intensity. Epic premium astronomical imagery inspired by a spherical constellation on black. Strictly achromatic black, grey and white, absolutely no color. Pure black backdrop, strong readable silhouette at tiny icon scale, restrained glow, crisp stars. Center subject at x=50%, y=35%, contained in top 65% of square; bottom 30% is pure black negative space for labels added separately. No text, no logos, no border, no watermark."
+    }
+  ]
+}

@@ -1,16 +1,17 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { MODEL_SELECTOR_ACTIONS, MODEL_SELECTOR_PROFILE } from "../src/models/model-selector-profile.ts";
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pluginRoot = path.join(root, "com.lukas-bhm.fingertip.sdPlugin");
-const output = path.join(pluginRoot, "profiles", "codex-model-selector.streamDeckProfile");
+const output = path.join(pluginRoot, `${MODEL_SELECTOR_PROFILE.name}.streamDeckProfile`);
 const manifest = JSON.parse(await readFile(path.join(pluginRoot, "manifest.json"), "utf8"));
 const stage = await mkdtemp(path.join(os.tmpdir(), "fingertip-model-profile-"));
-const profileId = "6C0D98ED-0AA8-47AA-94D3-530915149F31";
-const pageId = "3AE6A019-ED67-48E8-9BA6-BEE1289442E2";
+const { profileId, pageId } = MODEL_SELECTOR_PROFILE;
 const profileRoot = path.join(stage, "Profiles", `${profileId}.sdProfile`);
 const pageRoot = path.join(profileRoot, "Profiles", pageId);
 
@@ -19,49 +20,17 @@ const plugin = Object.freeze({
   UUID: manifest.UUID,
   Version: manifest.Version,
 });
-const efforts = ["low", "medium", "high", "xhigh", "max"];
-const families = ["sol", "terra", "luna"];
-const actions = {};
-
-for (const [row, family] of families.entries()) {
-  for (const [column, effort] of efforts.entries()) {
-    actions[`${column},${row}`] = {
-      ActionID: `model-${family}-${effort}`,
-      LinkedTitle: true,
-      Name: "Model Option",
-      Plugin: plugin,
-      Resources: null,
-      Settings: { family, effort },
-      State: 0,
-      States: [{}],
-      UUID: "com.lukas-bhm.fingertip.model-option",
-    };
-  }
-}
-
-actions["5,0"] = {
-  ActionID: "model-selector-fast-mode",
+const actions = Object.fromEntries(Object.entries(MODEL_SELECTOR_ACTIONS).map(([position, action]) => [position, {
+  ActionID: `${action.UUID}-${position}`,
   LinkedTitle: true,
-  Name: "Fast Mode",
+  Name: action.UUID.endsWith(".model-option") ? "Model Option"
+    : action.UUID.endsWith(".fast-mode") ? "Fast Mode" : "Back",
   Plugin: plugin,
   Resources: null,
-  Settings: {},
+  ...action,
   State: 0,
   States: [{}],
-  UUID: "com.lukas-bhm.fingertip.fast-mode",
-};
-
-actions["7,3"] = {
-  ActionID: "model-selector-back",
-  LinkedTitle: true,
-  Name: "Back",
-  Plugin: plugin,
-  Resources: null,
-  Settings: {},
-  State: 0,
-  States: [{}],
-  UUID: "com.lukas-bhm.fingertip.model-selector-back",
-};
+}]));
 
 const json = (value) => `${JSON.stringify(value, null, 2)}\n`;
 
@@ -81,6 +50,7 @@ try {
     writeFile(path.join(profileRoot, "manifest.json"), json({
       Device: { Model: "20GAT9902", UUID: "" },
       Name: "Codex Model Selector",
+      ReadOnly: true,
       Pages: { Current: pageId, Default: pageId, Pages: [pageId] },
       Version: "3.0",
     })),
@@ -99,6 +69,19 @@ try {
     zip.once("error", reject);
     zip.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`zip exited with ${code}`)));
   });
+  manifest.Profiles = [{
+    Name: MODEL_SELECTOR_PROFILE.name,
+    DeviceType: 2,
+    AutoInstall: true,
+    DontAutoSwitchWhenInstalled: true,
+    Readonly: true,
+  }];
+  await writeFile(path.join(pluginRoot, "manifest.json"), json(manifest));
+  // Remove obsolete bundled revisions only; installed user profiles belong to Stream Deck.
+  for (const entry of await readdir(path.dirname(output))) {
+    if (/^codex-model-selector(?:-[a-f0-9]{16})?\.streamDeckProfile$/u.test(entry)
+      && entry !== path.basename(output)) await rm(path.join(path.dirname(output), entry));
+  }
 } finally {
   await rm(stage, { recursive: true, force: true });
 }

@@ -21,8 +21,8 @@ straight to the exact task you need with one key press.
 - One-key navigation to the exact matching Codex task, with a choice of the
   last-active, leftmost, or rightmost ChatGPT window. Active tasks can open a
   fresh ChatGPT conversation when needed.
-- A Model Selector key opens a bundled Stream Deck XL profile with a 3-by-5
-  Sol, Terra, and Luna matrix for Light, Medium, High, Extra High, and Max thinking.
+- A Model Selector key opens a bundled Stream Deck XL profile with a 4-by-5
+  Astra 6, Sol, Terra, and Luna matrix for Light, Medium, High, Extra High, and Max thinking.
   The selected combination is highlighted and applied to the active Composer;
   a live Fast Mode key toggles that Composer's service tier in place.
 - Single press opens a task, double press highlights it, and long press marks
@@ -89,13 +89,21 @@ Appearance and notification preferences are global and apply to every Codex
 Task key. Source and task position remain specific to each key.
 
 Add a **Model Selector** key to open the bundled **Codex Model Selector**
-profile. Pressing one of its fifteen model keys updates the currently visible
+profile. Pressing one of its twenty model keys updates the currently visible
 ChatGPT task through desktop IPC, or configures a new-task composer before its
 first prompt, and returns to the previous Stream Deck profile. The Fast Mode
-key next to Sol Max follows the currently visible existing task and stays on
+key next to Astra 6 Max follows the currently visible existing task and stays on
 the selector profile so its state can be tested. The bundled matrix targets
 Stream Deck XL. New-task model and thinking selection use Codex's built-in
 `/model` and `/reasoning` menus and require no custom keyboard shortcuts.
+
+After a plugin update, keep your existing **Model Selector** key. If Stream Deck
+asks to install the updated bundled profile, choose **Install Profile(s)** in
+the Stream Deck app. An unanswered installation dialog blocks further attempts
+to open the selector. Each device uses its own installed profile; deleting or
+re-adding the launcher key is unnecessary.
+
+![Astra 6 model keys](assets/model-selector-v3/astra-keys-preview.png)
 
 ## Development
 
@@ -103,13 +111,28 @@ Stream Deck XL. New-task model and thinking selection use Codex's built-in
 npm ci
 npm run check
 npm run build
-npm run pack:model-selector-profile
 npx streamdeck validate com.lukas-bhm.fingertip.sdPlugin
 npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 ```
 
 Use `npm run reload` to build and restart the linked plugin during local
 development.
+
+The build regenerates the bundled Model Selector and its manifest entry from
+`src/models/model-selector-profile.ts`. Its file name, profile ID, and page ID
+are derived from the layout, so layout changes cannot reuse a stale installed
+copy. The launcher action UUID stays stable and always uses the current bundled
+profile on the device that was pressed. Existing launcher keys need no changes.
+Stream Deck manages profile installation through its supported profile API;
+the plugin never edits users' profile files.
+
+## Version 1.1.1
+
+- Added Astra 6 above Sol with five monochrome stellar key images.
+- Versioned selector layouts by content so existing Model Selector keys open
+  the current layout after a plugin update, independently on each Stream Deck.
+- Kept existing launcher action IDs and settings compatible with previous releases.
+- Documented Elgato's profile-installation confirmation when opening an updated layout.
 
 ## Version 1.1.0
 
