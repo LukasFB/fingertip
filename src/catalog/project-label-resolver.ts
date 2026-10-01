@@ -14,6 +14,7 @@ export interface WorkspaceMetadata {
   readonly projectOrder: readonly string[];
   readonly projectThreadOrders: ReadonlyMap<string, SidebarThreadOrder>;
   readonly projectlessThreadOrder: SidebarThreadOrder | null;
+  readonly sidebarSectionItems: readonly SidebarSectionItem[];
   readonly sidebarMode: "project" | "list";
   readonly sidebarSortMode: SidebarSortMode;
   readonly projectSortMode: SidebarSortMode;
@@ -40,6 +41,11 @@ export interface SidebarThreadOrder {
   readonly threadIds: readonly TaskId[];
   readonly sortKey?: "created_at" | "updated_at";
 }
+
+export type SidebarSectionItem =
+  | Readonly<{ kind: "project"; roots: readonly string[] }>
+  | Readonly<{ kind: "task"; taskId: TaskId }>
+  | Readonly<{ kind: "projects" | "tasks" }>;
 
 function fail(message: string): never {
   throw new TypeError(message);
@@ -135,6 +141,90 @@ function projectReferences(
   return Object.freeze([...new Set(roots)]);
 }
 
+function unifiedProjectOrder(
+  value: unknown,
+  rootsByLocalProjectId: ReadonlyMap<string, readonly string[]>,
+): readonly string[] | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 2_000) fail("invalid unified-sidebar-project-order-v1");
+  const references = value.flatMap((candidate) => {
+    if (typeof candidate !== "string" || Buffer.byteLength(candidate, "utf8") > 4_096) {
+      fail("invalid unified-sidebar-project-order-v1");
+    }
+    return candidate.startsWith("codex:project:") ? [candidate.slice("codex:project:".length)] : [];
+  });
+  return projectReferences(references, "unified-sidebar-project-order-v1", rootsByLocalProjectId);
+}
+
+function localSidebarTaskId(key: string): TaskId | null {
+  if (!key.startsWith("codex:thread:local:")) return null;
+  const candidate = key.slice("codex:thread:local:".length);
+  // New composers have client-side placeholders before their materialized
+  // task IDs exist. They cannot be navigated or listed in the catalog yet.
+  if (candidate.startsWith("client-new-thread:")) return null;
+  return parseTaskId(candidate);
+}
+
+function unifiedThreadOrder(value: unknown): SidebarThreadOrder | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 10_000) fail("invalid unified-sidebar-chat-order-v1");
+  const threadIds = value.flatMap((key) => {
+    if (typeof key !== "string" || Buffer.byteLength(key, "utf8") > 4_096) {
+      fail("invalid unified-sidebar-chat-order-v1");
+    }
+    const taskId = localSidebarTaskId(key);
+    return taskId === null ? [] : [taskId];
+  });
+  return Object.freeze({ threadIds: Object.freeze([...new Set(threadIds)]) });
+}
+
+function sidebarSectionItems(
+  value: unknown,
+  rootsByLocalProjectId: ReadonlyMap<string, readonly string[]>,
+): readonly SidebarSectionItem[] {
+  if (value === undefined) return Object.freeze([]);
+  if (!isRecord(value) || Object.keys(value).length > 256) fail("invalid sidebar-custom-sections-v3");
+  // This atom is scoped to the signed-in account. Without an account selector,
+  // several stored accounts cannot safely be combined into one sidebar.
+  const accounts = Object.values(value);
+  if (accounts.length !== 1) return Object.freeze([]);
+  const account = accounts[0];
+  if (!isRecord(account)) fail("invalid sidebar-custom-sections-v3");
+  const sections = selectedArray(account, "sections", 256);
+  if (sections.length === 0) return Object.freeze([]);
+  const itemsBySection = new Map<string, readonly SidebarSectionItem[]>();
+  for (const section of sections) {
+    if (!isRecord(section) || typeof section.id !== "string" || Buffer.byteLength(section.id, "utf8") > 128) {
+      fail("invalid sidebar-custom-sections-v3.sections");
+    }
+    const items: SidebarSectionItem[] = [];
+    for (const key of selectedArray(section, "itemKeys", 10_000)) {
+      if (typeof key !== "string" || Buffer.byteLength(key, "utf8") > 4_096) {
+        fail("invalid sidebar-custom-sections-v3.itemKeys");
+      }
+      if (key.startsWith("codex:project:")) {
+        const roots = projectReferences([key.slice("codex:project:".length)], "sidebar-custom-sections-v3.itemKeys", rootsByLocalProjectId);
+        if (roots.length > 0) items.push(Object.freeze({ kind: "project", roots }));
+      } else {
+        const taskId = localSidebarTaskId(key);
+        if (taskId !== null) items.push(Object.freeze({ kind: "task", taskId }));
+      }
+    }
+    itemsBySection.set(`custom:${section.id}`, Object.freeze(items));
+  }
+  const storedOrder = selectedArray(account, "sectionOrder", 258);
+  if (storedOrder.some((key) => typeof key !== "string" || Buffer.byteLength(key, "utf8") > 256)) {
+    fail("invalid sidebar-custom-sections-v3.sectionOrder");
+  }
+  const defaultOrder = [...itemsBySection.keys(), "projects", "chats"];
+  const orderedKeys = [...new Set([...storedOrder, ...defaultOrder])];
+  return Object.freeze(orderedKeys.flatMap((key): readonly SidebarSectionItem[] => {
+    if (key === "projects") return [Object.freeze({ kind: "projects" })];
+    if (key === "chats" || key === "threads") return [Object.freeze({ kind: "tasks" })];
+    return typeof key === "string" ? itemsBySection.get(key) ?? [] : [];
+  }));
+}
+
 function selectedProjectRoots(
   value: unknown,
   rootsByLocalProjectId: ReadonlyMap<string, readonly string[]>,
@@ -201,7 +291,8 @@ function sidebarPreferences(value: unknown): {
     mode,
     sortMode,
     projectSortMode,
-    projectlessOrder: projectless === undefined ? null : parseSidebarThreadOrder(projectless, "codex-sidebar-chat-order-v1"),
+    projectlessOrder: unifiedThreadOrder(atoms["unified-sidebar-chat-order-v1"])
+      ?? (projectless === undefined ? null : parseSidebarThreadOrder(projectless, "codex-sidebar-chat-order-v1")),
   });
 }
 
@@ -232,7 +323,10 @@ export function projectWorkspaceMetadata(value: unknown): WorkspaceMetadata {
     "pinned-project-ids",
     rootsByLocalProjectId,
   );
-  const projectOrder = projectReferences(value["project-order"], "project-order", rootsByLocalProjectId);
+  const atoms = isRecord(value["electron-persisted-atom-state"]) ? value["electron-persisted-atom-state"] : {};
+  const projectOrder = unifiedProjectOrder(atoms["unified-sidebar-project-order-v1"], rootsByLocalProjectId)
+    ?? projectReferences(value["project-order"], "project-order", rootsByLocalProjectId);
+  const sectionItems = sidebarSectionItems(atoms["sidebar-custom-sections-v3"], rootsByLocalProjectId);
   const projectThreadOrders = new Map<string, SidebarThreadOrder>();
   for (const [projectReference, order] of Object.entries(selectedRecord(value, "sidebar-project-thread-orders", 2_000))) {
     const parsedOrder = parseSidebarThreadOrder(order, "sidebar-project-thread-orders");
@@ -255,6 +349,7 @@ export function projectWorkspaceMetadata(value: unknown): WorkspaceMetadata {
     projectOrder,
     projectThreadOrders,
     projectlessThreadOrder: preferences.projectlessOrder,
+    sidebarSectionItems: sectionItems,
     sidebarMode: preferences.mode,
     sidebarSortMode: preferences.sortMode,
     projectSortMode: preferences.projectSortMode,

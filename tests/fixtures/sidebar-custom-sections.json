@@ -1,0 +1,28 @@
+{
+  "local-projects": {
+    "local-current": { "id": "local-current", "name": "Current project", "rootPaths": ["/work/current"] },
+    "10000000-0000-4000-8000-000000000001": { "id": "10000000-0000-4000-8000-000000000001", "name": "Secondary project", "rootPaths": ["/work/secondary"] },
+    "local-normal": { "id": "local-normal", "name": "Normal project", "rootPaths": ["/work/normal"] },
+    "local-pinned": { "id": "local-pinned", "name": "Pinned project", "rootPaths": ["/work/pinned"] }
+  },
+  "project-order": ["local-current", "local-normal"],
+  "pinned-project-ids": ["local-pinned"],
+  "pinned-thread-ids": ["00000000-0000-4000-8000-000000000102"],
+  "sidebar-project-thread-orders": {
+    "local-current": { "threadIds": ["00000000-0000-4000-8000-000000000103", "00000000-0000-4000-8000-000000000104"] }
+  },
+  "electron-persisted-atom-state": {
+    "flat-project-sidebar-preferences-v1": { "chatSortMode": "manual", "initialized": true, "mode": "project", "projectSortMode": "manual" },
+    "unified-sidebar-project-order-v1": ["codex:project:local-normal", "codex:project:local-current", "codex:project:10000000-0000-4000-8000-000000000001"],
+    "sidebar-custom-sections-v3": {
+      "test-account": {
+        "sections": [
+          { "id": "secondary", "name": "Secondary", "itemKeys": ["codex:project:10000000-0000-4000-8000-000000000001"], "appearance": null },
+          { "id": "current", "name": "Current", "itemKeys": ["codex:project:local-current", "codex:thread:local:00000000-0000-4000-8000-000000000105", "codex:thread:local:00000000-0000-4000-8000-000000000102", "codex:project:local-pinned", "chatgpt:project:unrelated", "codex:thread:remote:00000000-0000-4000-8000-000000000199", "codex:thread:local:client-new-thread:00000000-0000-4000-8000-000000000198"], "appearance": null }
+        ],
+        "collapsedSectionIds": [],
+        "sectionOrder": ["custom:current", "custom:secondary"]
+      }
+    }
+  }
+}

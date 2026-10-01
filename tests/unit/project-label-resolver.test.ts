@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -103,4 +104,55 @@ test("current local-project assignments classify a newly created project Thread 
   assert.equal(resolveProjectLabel({ id: assigned, cwd: "/elsewhere" }, metadata), "partyausrichter.com");
   assert.equal(resolveProjectLabel({ id: projectless, cwd: "/elsewhere" }, metadata), undefined);
   assert.deepEqual(metadata.savedRoots, ["/Projects/partyausrichter.com"]);
+});
+
+test("current unified project order and custom sections project only local sidebar items", () => {
+  const fixture: unknown = JSON.parse(readFileSync(new URL("../fixtures/sidebar-custom-sections.json", import.meta.url), "utf8"));
+  const metadata = projectWorkspaceMetadata(fixture);
+
+  assert.deepEqual(metadata.projectOrder, ["/work/normal", "/work/current", "/work/secondary"]);
+  assert.deepEqual(metadata.sidebarSectionItems, [
+    { kind: "project", roots: ["/work/current"] },
+    { kind: "task", taskId: "00000000-0000-4000-8000-000000000105" },
+    { kind: "task", taskId: "00000000-0000-4000-8000-000000000102" },
+    { kind: "project", roots: ["/work/pinned"] },
+    { kind: "project", roots: ["/work/secondary"] },
+    { kind: "projects" },
+    { kind: "tasks" },
+  ]);
+  assert.deepEqual(metadata.pinnedProjectIds, ["/work/pinned"]);
+});
+
+test("custom sidebar state from several accounts is not combined", () => {
+  const metadata = projectWorkspaceMetadata({
+    "project-order": ["/work/normal"],
+    "electron-persisted-atom-state": {
+      "sidebar-custom-sections-v3": {
+        first: { sections: [{ id: "first", itemKeys: [] }] },
+        second: { sections: [{ id: "second", itemKeys: [] }] },
+      },
+    },
+  });
+
+  assert.deepEqual(metadata.projectOrder, ["/work/normal"]);
+  assert.deepEqual(metadata.sidebarSectionItems, []);
+});
+
+test("unified chat order supersedes the old atom and skips composer placeholders and other sources", () => {
+  const earlier = "00000000-0000-4000-8000-000000000121";
+  const later = "00000000-0000-4000-8000-000000000122";
+  const metadata = projectWorkspaceMetadata({
+    "electron-persisted-atom-state": {
+      "codex-sidebar-chat-order-v1": { threadIds: [earlier, later] },
+      "unified-sidebar-chat-order-v1": [
+        "codex:thread:local:client-new-thread:00000000-0000-4000-8000-000000000123",
+        "chatgpt:thread:unrelated",
+        `codex:thread:remote:${earlier}`,
+        `codex:thread:local:${later}`,
+        `codex:thread:local:${earlier}`,
+      ],
+    },
+  });
+
+  assert.deepEqual(metadata.projectlessThreadOrder, { threadIds: [later, earlier] });
 });

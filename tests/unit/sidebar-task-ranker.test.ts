@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { projectThreadListResult } from "../../src/catalog/catalog-projection.ts";
@@ -237,4 +238,84 @@ test("invalid sidebar state fails the metadata projection atomically", () => {
   assert.throws(() => projectWorkspaceMetadata({
     "sidebar-project-thread-orders": { "/work/alpha": { threadIds: "wrong" } },
   }));
+});
+
+test("custom sidebar sections precede remaining projects and preserve pins and project Thread order", () => {
+  const fixture: unknown = JSON.parse(readFileSync(new URL("../fixtures/sidebar-custom-sections.json", import.meta.url), "utf8"));
+  const metadata = projectWorkspaceMetadata(fixture);
+  const normal = "00000000-0000-4000-8000-000000000101";
+  const pinned = "00000000-0000-4000-8000-000000000102";
+  const currentOld = "00000000-0000-4000-8000-000000000103";
+  const currentNew = "00000000-0000-4000-8000-000000000104";
+  const movedThread = "00000000-0000-4000-8000-000000000105";
+  const secondary = "00000000-0000-4000-8000-000000000106";
+  const pinnedProject = "00000000-0000-4000-8000-000000000107";
+  const projectless = "00000000-0000-4000-8000-000000000108";
+  const tasks = projectThreadListResult({
+    data: [
+      task(normal, "/work/normal", 800),
+      task(currentNew, "/work/current", 700),
+      task(secondary, "/work/secondary", 600),
+      task(movedThread, "/work/normal", 500),
+      task(currentOld, "/work/current", 400),
+      task(pinnedProject, "/work/pinned", 300),
+      task(projectless, "/scratch", 200),
+      task(pinned, "/scratch", 100),
+    ],
+    nextCursor: null,
+  }).tasks;
+
+  assert.deepEqual(rankTasksLikeSidebar(tasks, metadata, new Map()).map(({ id }) => id), [
+    pinned, pinnedProject, currentOld, currentNew, movedThread, secondary, normal, projectless,
+  ]);
+});
+
+test("an explicit built-in section position and section moves apply on the next metadata projection", () => {
+  const current = "00000000-0000-4000-8000-000000000111";
+  const normal = "00000000-0000-4000-8000-000000000112";
+  const tasks = projectThreadListResult({
+    data: [task(current, "/work/current", 200), task(normal, "/work/normal", 100)],
+    nextCursor: null,
+  }).tasks;
+  const metadata = (sectionOrder: readonly string[]) => projectWorkspaceMetadata({
+    "local-projects": {
+      current: { rootPaths: ["/work/current"] },
+      normal: { rootPaths: ["/work/normal"] },
+    },
+    "project-order": ["normal"],
+    "electron-persisted-atom-state": {
+      "sidebar-custom-sections-v3": {
+        account: { sections: [{ id: "current", itemKeys: ["codex:project:current"] }], sectionOrder },
+      },
+    },
+  });
+
+  assert.deepEqual(rankTasksLikeSidebar(tasks, metadata(["custom:current"]), new Map()).map(({ id }) => id), [current, normal]);
+  assert.deepEqual(rankTasksLikeSidebar(tasks, metadata(["projects", "custom:current"]), new Map()).map(({ id }) => id), [normal, current]);
+});
+
+test("current unified project and chat order replace the stale legacy order without custom sections", () => {
+  const projectAlpha = "00000000-0000-4000-8000-000000000131";
+  const projectBeta = "00000000-0000-4000-8000-000000000132";
+  const taskAlpha = "00000000-0000-4000-8000-000000000133";
+  const taskBeta = "00000000-0000-4000-8000-000000000134";
+  const tasks = projectThreadListResult({
+    data: [
+      task(projectAlpha, "/work/alpha", 400), task(taskAlpha, "/scratch", 300),
+      task(projectBeta, "/work/beta", 200), task(taskBeta, "/scratch", 100),
+    ],
+    nextCursor: null,
+  }).tasks;
+  const metadata = projectWorkspaceMetadata({
+    "local-projects": { alpha: { rootPaths: ["/work/alpha"] }, beta: { rootPaths: ["/work/beta"] } },
+    "project-order": ["alpha", "beta"],
+    "electron-persisted-atom-state": {
+      "codex-sidebar-sort-mode-v1": "manual",
+      "codex-sidebar-chat-order-v1": { threadIds: [taskAlpha, taskBeta] },
+      "unified-sidebar-project-order-v1": ["codex:project:beta", "codex:project:alpha"],
+      "unified-sidebar-chat-order-v1": [`codex:thread:local:${taskBeta}`, `codex:thread:local:${taskAlpha}`],
+    },
+  });
+
+  assert.deepEqual(rankTasksLikeSidebar(tasks, metadata, new Map()).map(({ id }) => id), [projectBeta, projectAlpha, taskBeta, taskAlpha]);
 });

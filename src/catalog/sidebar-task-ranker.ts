@@ -85,7 +85,7 @@ export function rankTasksLikeSidebar(
   const pinnedIds = new Set(pinned.map((task) => task.id));
   const unpinned = tasks.filter((task) => !pinnedIds.has(task.id));
 
-  if (metadata.sidebarMode === "list") {
+  if (metadata.sidebarMode === "list" && metadata.sidebarSectionItems.length === 0) {
     return Object.freeze([
       ...pinned,
       ...orderedTasks(unpinned, metadata, statuses, metadata.projectlessThreadOrder, materializedThreadIds),
@@ -128,6 +128,47 @@ export function rankTasksLikeSidebar(
     metadata.projectThreadOrders.get(root) ?? null,
     materializedThreadIds,
   );
+  if (metadata.sidebarSectionItems.length > 0) {
+    const sectionTaskIds = new Set(metadata.sidebarSectionItems.flatMap((item) =>
+      item.kind === "task" ? [item.taskId] : []));
+    const sectionRoots = new Set(metadata.sidebarSectionItems.flatMap((item) =>
+      item.kind === "project" ? item.roots : []));
+    const groupedTasks = (root: string): readonly ProjectableCatalogTask[] =>
+      rankedProject(root).filter((task) => !sectionTaskIds.has(task.id));
+    const remainingTasks = unpinned.filter((task) => !sectionTaskIds.has(task.id)
+      && !sectionRoots.has(resolveProjectRoot(task, metadata) ?? ""));
+    const result = [
+      ...pinned,
+      ...pinnedRoots.flatMap(groupedTasks),
+    ];
+    const emittedIds = new Set(result.map((task) => task.id));
+    const append = (candidates: readonly ProjectableCatalogTask[]): void => {
+      for (const candidate of candidates) {
+        if (emittedIds.has(candidate.id)) continue;
+        emittedIds.add(candidate.id);
+        result.push(candidate);
+      }
+    };
+    for (const item of metadata.sidebarSectionItems) {
+      if (item.kind === "project") {
+        append(item.roots.flatMap(groupedTasks));
+      } else if (item.kind === "task") {
+        const candidate = byId.get(item.taskId);
+        if (candidate !== undefined) append([candidate]);
+      } else if (item.kind === "projects" && metadata.sidebarMode === "project") {
+        append(orderedRoots.filter((root) => !sectionRoots.has(root)).flatMap(groupedTasks));
+      } else if (item.kind === "tasks") {
+        append(orderedTasks(
+          metadata.sidebarMode === "list" ? remainingTasks : projectless.filter((task) => !sectionTaskIds.has(task.id)),
+          metadata,
+          statuses,
+          metadata.projectlessThreadOrder,
+          materializedThreadIds,
+        ));
+      }
+    }
+    return Object.freeze(result);
+  }
   return Object.freeze([
     ...pinned,
     ...pinnedRoots.flatMap(rankedProject),
