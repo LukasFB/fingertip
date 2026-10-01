@@ -23,6 +23,6 @@ previously generated output as their input.
 
 Requirements: macOS, Xcode command-line tools, Node.js 24+, and ImageMagick.
 
-`npm run generate:release-gallery` builds the version-stamped settings images
-and the Model Selector gallery image. The latter uses the high-resolution
-selector capture in `bases/model-selector-ui.png`.
+`npm run generate:release-gallery` builds the version-stamped settings images.
+The former Model Selector artwork is obsolete. Capture the new Codex Model key
+and its inspector before preparing the next approved release gallery.

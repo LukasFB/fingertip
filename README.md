@@ -17,14 +17,15 @@ straight to the exact task you need with one key press.
 - Project bars scale with the project-name font and keep the title vertically
   centered with balanced padding.
 - Separate `Pinned + Projects` and `Tasks` sources that follow ChatGPT's
-  sidebar order.
+  sidebar order, including custom sections and the unified project/chat order.
 - One-key navigation to the exact matching Codex task, with a choice of the
   last-active, leftmost, or rightmost ChatGPT window. Active tasks can open a
   fresh ChatGPT conversation when needed.
-- A Model Selector key opens a bundled Stream Deck XL profile with a 4-by-5
-  Astra 6, Sol, Terra, and Luna matrix for Light, Medium, High, Extra High, and Max thinking.
-  The selected combination is highlighted and applied to the active Composer;
-  a live Fast Mode key toggles that Composer's service tier in place.
+- Configurable Codex Model keys apply a chosen model and thinking level to the
+  active thread. Models and their supported thinking levels are discovered from
+  the installed app, including newly available models without a plugin update.
+  Each key has its own background color, font sizes, and text alignment.
+- A standalone Fast Mode key toggles the active thread's service tier.
 - Single press opens a task, double press highlights it, and long press marks
   it unread.
 - Optional task-owned line-change statistics plus queue and ongoing-goal
@@ -32,7 +33,8 @@ straight to the exact task you need with one key press.
 - Shared settings organized into General, Appearance, Notifications, and
   Status tabs.
 - Independent notifications when a task enters Done or Approval Required:
-  `Off`, `Toast`, `Audio`, or `Both`.
+  `Off`, `Toast`, `Audio`, or `Both`. Done notifications are suppressed while
+  the task has an active Goal, including when the Goal badge is hidden.
 - macOS system-sound presets or a custom audio file for each transition, with
   a test-play button, independent volume controls, repeat counts, and repeat
   delays.
@@ -42,8 +44,6 @@ straight to the exact task you need with one key press.
 ![Shared appearance settings](marketplace-assets/gallery-5-settings-appearance.png)
 
 ![Done and blocked notification settings](marketplace-assets/gallery-6-settings-notifications.png)
-
-![Model Selector profile](marketplace-assets/gallery-7-model-selector.png)
 
 Native Toast notifications follow the notification style configured in macOS:
 Temporary notifications disappear automatically, while Persistent
@@ -88,22 +88,30 @@ Add or select a Codex Task key in Stream Deck:
 Appearance and notification preferences are global and apply to every Codex
 Task key. Source and task position remain specific to each key.
 
-Add a **Model Selector** key to open the bundled **Codex Model Selector**
-profile. Pressing one of its twenty model keys updates the currently visible
-ChatGPT task through desktop IPC, or configures a new-task composer before its
-first prompt, and returns to the previous Stream Deck profile. The Fast Mode
-key next to Astra 6 Max follows the currently visible existing task and stays on
-the selector profile so its state can be tested. The bundled matrix targets
-Stream Deck XL. New-task model and thinking selection use Codex's built-in
-`/model` and `/reasoning` menus and require no custom keyboard shortcuts.
+Add a **Codex Model** key and choose a model and thinking level from the
+**General** dropdowns. The list comes from the installed ChatGPT/Codex app and
+refreshes automatically; **Status → Refresh models** also reloads it on demand.
+Changing models selects that model's advertised default thinking level.
+Saved selections remain intact when the app is offline or a model becomes
+unavailable. Unsupported combinations show a warning and are not applied.
 
-After a plugin update, keep your existing **Model Selector** key. If Stream Deck
-asks to install the updated bundled profile, choose **Install Profile(s)** in
-the Stream Deck app. An unanswered installation dialog blocks further attempts
-to open the selector. Each device uses its own installed profile; deleting or
-re-adding the launcher key is unnecessary.
+**Appearance** configures that key's background color, separate model and
+thinking font sizes, and left, center, or right alignment. These preferences
+are independent from the shared Codex Task appearance settings. The key shows
+the selected model on its first line and the thinking level on its second.
+A bright border marks keys whose model and thinking level match the active
+thread's confirmed settings. It follows thread and model changes automatically;
+unknown or stale settings and disconnected sessions have no active border.
 
-![Astra 6 model keys](assets/model-selector-v3/astra-keys-preview.png)
+Press the key to update the currently active existing thread for its next turn.
+No prompt is sent. A success indication requires the app to acknowledge the
+request and report the matching settings through its live stream. Open an
+existing thread first; a new empty composer has no thread to receive settings.
+Add **Fast Mode** as a separate key if needed.
+
+The old Model Selector and its bundled XL profile have been removed. Replace
+an existing Model Selector launcher with a Codex Model key; no XL-specific
+layout or profile installation is required.
 
 ## Development
 
@@ -118,13 +126,35 @@ npx streamdeck pack com.lukas-bhm.fingertip.sdPlugin --output dist
 Use `npm run reload` to build and restart the linked plugin during local
 development.
 
-The build regenerates the bundled Model Selector and its manifest entry from
-`src/models/model-selector-profile.ts`. Its file name, profile ID, and page ID
-are derived from the layout, so layout changes cannot reuse a stale installed
-copy. The launcher action UUID stays stable and always uses the current bundled
-profile on the device that was pressed. Existing launcher keys need no changes.
-Stream Deck manages profile installation through its supported profile API;
-the plugin never edits users' profile files.
+Bundle discovery supports both the original Codex executable and the signed
+CLI nested inside current ChatGPT releases. Catalog initialization allows up
+to 30 seconds, while regular requests keep their 5-second deadline. Reconnects
+wait for the previous catalog process to stop before starting another one.
+Optional history requests that exceed the 16 MiB response limit omit change
+statistics for that task while keeping the catalog connection available.
+
+Model discovery shares the existing catalog connection. Requests are queued
+and serialized so model refreshes cannot interrupt task or history queries.
+The desktop adapter supports current settings, read-state, and queue protocols,
+with legacy settings fallback for older app versions.
+Current read-state v3 requires the app's account and execution-host context.
+Until this connection observes a local read-state event, marking a task unread
+is unavailable; the plugin does not guess that context. Model changes are
+independent of this restriction.
+
+## Version 1.1.2
+
+- Replaced the bundled Model Selector with configurable Codex Model keys. Models and supported thinking levels are discovered dynamically from the installed app.
+- Added per-key background color, model and thinking font sizes, and text alignment. A live border highlights keys matching the active thread.
+- Made Fast Mode available as a standalone action.
+- Updated desktop integration for current model settings, read-state, and task queue protocols. Model changes are confirmed through the live settings stream.
+- Restored live task lists and status updates with current ChatGPT for macOS releases, with more reliable startup and reconnection.
+- Updated task ordering for custom sidebar sections and the unified project/chat order.
+- Improved handling of oversized task histories and optional goal lookup errors. Change statistics are skipped for histories that exceed the response limit.
+- Suppressed Done notifications while an active Goal continues, even when its badge is hidden, and prevented delayed alerts for outdated task states.
+- Fixed outdated connection diagnostics in settings.
+
+Upgrade note: Replace existing Model Selector launcher and profile keys with Codex Model keys. Model keys apply to the active existing thread; open a thread before using them. Empty new composers are no longer supported for model selection.
 
 ## Version 1.1.1
 
