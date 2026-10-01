@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ChatGptBundleResolver } from "../../src/chatgpt/chatgpt-bundle-resolver.ts";
+import type {
+  ChatGptBundleResolver,
+  ResolvedChatGptBundle,
+} from "../../src/chatgpt/chatgpt-bundle-resolver.ts";
 import type { ChatGptNavigationPort } from "../../src/chatgpt/chatgpt-navigation-port.ts";
 import type {
   ChatGptDesktopIpcAdapter,
@@ -524,7 +527,7 @@ test("global-state changes request an immediate catalog refresh and the watcher 
   assert.equal(watcherStops, 1);
 });
 
-test("three identical catalog schema failures expose an incompatible diagnosis", async () => {
+test("three identical catalog schema failures expose an incompatible diagnosis", { timeout: 2_000 }, async (t) => {
   const timers: { callback: () => void; delay: number; cleared: boolean }[] = [];
   const setTimer = ((callback: () => void, delay = 0) => {
     timers.push({ callback, delay, cleared: false });
@@ -552,6 +555,7 @@ test("three identical catalog schema failures expose an incompatible diagnosis",
     async stop() {},
   });
   const propertyInspectorMessages: unknown[] = [];
+  const incompatibleReported = deferredCatalogLifecycle<void>();
   const runtime = new FingertipRuntime({
     bundleResolver: {
       async resolve() {
@@ -569,12 +573,19 @@ test("three identical catalog schema failures expose an incompatible diagnosis",
     catalogClientFactory,
     readWorkspaceMetadata: async () => projectWorkspaceMetadata({}),
     navigation: { async openTask() { return true; } } as unknown as ChatGptNavigationPort,
-    propertyInspector: { async send(payload) { propertyInspectorMessages.push(payload); } },
+    propertyInspector: {
+      async send(payload) {
+        propertyInspectorMessages.push(payload);
+        const message = payload as { connection?: { code?: string } };
+        if (message.connection?.code === "CATALOG_INCOMPATIBLE") incompatibleReported.resolve(undefined);
+      },
+    },
     random: () => 0.5,
     setTimer,
     clearTimer,
     now: () => 1_000,
   });
+  t.after(() => runtime.shutdown());
   const action = { id: "one", async setImage() {}, async showAlert() {} };
   runtime.attachAction(action, normalizeTaskKeySettings(undefined));
   runtime.propertyInspectorDidAppear(action.id);
@@ -592,6 +603,7 @@ test("three identical catalog schema failures expose an incompatible diagnosis",
     await flush();
   }
 
+  await incompatibleReported.promise;
   const lastMessage = propertyInspectorMessages.at(-1) as { connection?: { code?: string } } | undefined;
   assert.equal(starts, 3);
   assert.equal(lastMessage?.connection?.code, "CATALOG_INCOMPATIBLE");
@@ -683,4 +695,275 @@ test("wake starts a fresh catalog refresh even when the previous generation was 
   for (let iteration = 0; iteration < 5; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(listCalls, [1, 2]);
   runtime.shutdown();
+});
+
+const lifecycleBundle: ResolvedChatGptBundle = {
+  bundlePath: "/validated/ChatGPT.app",
+  binaryPath: "/validated/codex",
+  appVersion: "1",
+  appBuild: "2",
+  codexVersion: "codex 3",
+  fingerprint: "bundle-a",
+};
+
+function catalogLifecycleHarness(options: Partial<ConstructorParameters<typeof FingertipRuntime>[0]>) {
+  const timers: { callback: () => void; delay: number; cleared: boolean }[] = [];
+  let notifyMetadataChange: (() => void) | null = null;
+  const runtime = new FingertipRuntime({
+    bundleResolver: { async resolve() { return lifecycleBundle; } } as ChatGptBundleResolver,
+    desktopIpc: {
+      state: "offline",
+      onHealth() { return () => undefined; },
+      onTaskRecord() { return () => undefined; },
+      onCatalogHint() { return () => undefined; },
+      setCatalogTaskIds() {},
+      setCompatibilityFingerprint() {},
+      clearCompatibilityLatch() {},
+      async start() {},
+      stop() {},
+    } as unknown as ChatGptDesktopIpcAdapter,
+    watchWorkspaceMetadata(onChange) {
+      notifyMetadataChange = onChange;
+      return () => undefined;
+    },
+    readWorkspaceMetadata: async () => projectWorkspaceMetadata({}),
+    propertyInspector: { async send() {} },
+    random: () => 0.5,
+    setTimer: ((callback: () => void, delay = 0) => {
+      timers.push({ callback, delay, cleared: false });
+      return timers.length as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout,
+    clearTimer: ((timer: ReturnType<typeof setTimeout>) => {
+      const entry = timers[Number(timer) - 1];
+      if (entry !== undefined) entry.cleared = true;
+    }) as typeof clearTimeout,
+    ...options,
+  });
+  return {
+    runtime,
+    timers,
+    start() {
+      runtime.attachAction(
+        { id: "one", async setImage() {}, async showAlert() {} },
+        normalizeTaskKeySettings(undefined),
+      );
+    },
+    metadataChanged() {
+      assert.ok(notifyMetadataChange);
+      notifyMetadataChange();
+    },
+    runTimer(delay: number) {
+      const timer = timers.findLast((entry) => !entry.cleared && entry.delay === delay);
+      assert.ok(timer, `expected an active ${delay}ms timer`);
+      timer.cleared = true;
+      timer.callback();
+    },
+  };
+}
+
+async function flushCatalogLifecycle(): Promise<void> {
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+function deferredCatalogLifecycle<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+test("metadata refresh requests share one catalog startup during bundle resolution and initialization", async (t) => {
+  const resolvingBundle = deferredCatalogLifecycle<ResolvedChatGptBundle>();
+  const initializingClient = deferredCatalogLifecycle<void>();
+  let resolutions = 0;
+  let clients = 0;
+  let queries = 0;
+  let stops = 0;
+  const harness = catalogLifecycleHarness({
+    bundleResolver: {
+      resolve() { resolutions += 1; return resolvingBundle.promise; },
+    } as unknown as ChatGptBundleResolver,
+    catalogClientFactory: () => {
+      clients += 1;
+      return {
+        start() { return initializingClient.promise; },
+        async listThreads() { queries += 1; return { data: [], nextCursor: null }; },
+        async stop() { stops += 1; },
+      };
+    },
+  });
+  t.after(() => harness.runtime.shutdown());
+  harness.start();
+  await flushCatalogLifecycle();
+  for (let change = 0; change < 3; change += 1) {
+    harness.metadataChanged();
+    harness.runTimer(100);
+    await flushCatalogLifecycle();
+  }
+  assert.equal(resolutions, 1);
+
+  resolvingBundle.resolve(lifecycleBundle);
+  await flushCatalogLifecycle();
+  for (let change = 0; change < 3; change += 1) {
+    harness.metadataChanged();
+    harness.runTimer(100);
+    await flushCatalogLifecycle();
+  }
+  assert.equal(clients, 1);
+  initializingClient.resolve(undefined);
+  await flushCatalogLifecycle();
+  assert.equal(queries, 1);
+  harness.runtime.shutdown();
+  assert.equal(stops, 1);
+});
+
+test("catalog retry waits for the failed client's process retirement despite metadata changes", async (t) => {
+  const retiringClient = deferredCatalogLifecycle<void>();
+  let clients = 0;
+  let liveClients = 0;
+  let maximumLiveClients = 0;
+  const harness = catalogLifecycleHarness({
+    catalogClientFactory: () => {
+      const number = ++clients;
+      return {
+        async start() {
+          liveClients += 1;
+          maximumLiveClients = Math.max(maximumLiveClients, liveClients);
+          if (number === 1) throw new Error("initialize failed");
+        },
+        async listThreads() { return { data: [], nextCursor: null }; },
+        async stop() {
+          if (number === 1) await retiringClient.promise;
+          liveClients -= 1;
+        },
+      };
+    },
+  });
+  t.after(() => harness.runtime.shutdown());
+  harness.start();
+  await flushCatalogLifecycle();
+  for (let change = 0; change < 3; change += 1) {
+    harness.metadataChanged();
+    harness.runTimer(100);
+    await flushCatalogLifecycle();
+  }
+  assert.equal(clients, 1);
+  retiringClient.resolve(undefined);
+  await flushCatalogLifecycle();
+  harness.runTimer(1_000);
+  await flushCatalogLifecycle();
+  assert.equal(clients, 2);
+  assert.equal(maximumLiveClients, 1);
+});
+
+test("a catalog failure finishing after wake cannot remove the replacement client", async (t) => {
+  const retiringClient = deferredCatalogLifecycle<void>();
+  const queries = [0, 0];
+  const stops = [0, 0];
+  let clients = 0;
+  const harness = catalogLifecycleHarness({
+    catalogClientFactory: () => {
+      const index = clients++;
+      return {
+        async start() {},
+        async listThreads() {
+          queries[index] = (queries[index] ?? 0) + 1;
+          if (index === 0 && queries[index] === 2) throw new Error("query failed");
+          return { data: [], nextCursor: null };
+        },
+        async stop() {
+          stops[index] = (stops[index] ?? 0) + 1;
+          if (index === 0) await retiringClient.promise;
+        },
+      };
+    },
+  });
+  t.after(() => harness.runtime.shutdown());
+  harness.start();
+  await flushCatalogLifecycle();
+  harness.runTimer(2_000);
+  await flushCatalogLifecycle();
+  assert.equal(stops[0], 1);
+
+  harness.runtime.systemDidWake();
+  harness.metadataChanged();
+  harness.runTimer(100);
+  await flushCatalogLifecycle();
+  assert.equal(clients, 1);
+  retiringClient.resolve(undefined);
+  await flushCatalogLifecycle();
+  assert.equal(clients, 2);
+  assert.deepEqual(stops, [1, 0]);
+  harness.metadataChanged();
+  harness.runTimer(100);
+  await flushCatalogLifecycle();
+  assert.deepEqual(queries, [2, 2]);
+  assert.equal(clients, 2);
+});
+
+test("shutdown during catalog initialization stops the client once and suppresses late retries", async () => {
+  const initializingClient = deferredCatalogLifecycle<void>();
+  let clients = 0;
+  let stops = 0;
+  const harness = catalogLifecycleHarness({
+    catalogClientFactory: () => {
+      clients += 1;
+      return {
+        start() { return initializingClient.promise; },
+        async listThreads() { return { data: [], nextCursor: null }; },
+        async stop() { stops += 1; },
+      };
+    },
+  });
+  harness.start();
+  await flushCatalogLifecycle();
+  assert.equal(clients, 1);
+  harness.runtime.shutdown();
+  initializingClient.reject(new Error("client stopped during initialize"));
+  await flushCatalogLifecycle();
+  assert.equal(stops, 1);
+  assert.equal(harness.timers.some((timer) => !timer.cleared), false);
+});
+
+test("a delayed property inspector send reads the latest catalog diagnosis after sound checks", async (t) => {
+  const resolvingBundle = deferredCatalogLifecycle<ResolvedChatGptBundle>();
+  const soundCheck = deferredCatalogLifecycle<boolean>();
+  const messages: { connection?: { code?: string } }[] = [];
+  let soundChecks = 0;
+  const harness = catalogLifecycleHarness({
+    bundleResolver: { resolve() { return resolvingBundle.promise; } } as unknown as ChatGptBundleResolver,
+    catalogClientFactory: () => ({
+      async start() {},
+      async listThreads() { throw new Error("catalog unavailable"); },
+      async stop() {},
+    }),
+    notifier: {
+      notify() {},
+      async importCustomSound() { return false; },
+      customSoundAvailable() {
+        soundChecks += 1;
+        return soundChecks <= 2 ? soundCheck.promise : Promise.resolve(false);
+      },
+    },
+    propertyInspector: {
+      async send(payload) { messages.push(payload as { connection?: { code?: string } }); },
+    },
+  });
+  t.after(() => harness.runtime.shutdown());
+  harness.start();
+  harness.runtime.propertyInspectorDidAppear("one");
+  await flushCatalogLifecycle();
+
+  resolvingBundle.resolve(lifecycleBundle);
+  await flushCatalogLifecycle();
+  assert.equal(messages.at(-1)?.connection?.code, "CATALOG_UNAVAILABLE");
+
+  soundCheck.resolve(false);
+  await flushCatalogLifecycle();
+  assert.equal(messages.at(-1)?.connection?.code, "CATALOG_UNAVAILABLE");
 });

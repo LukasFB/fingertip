@@ -2,7 +2,7 @@
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "UUID": "com.lukas-bhm.fingertip",
   "Name": "Fingertip Agent",
-  "Version": "1.1.1.0",
+  "Version": "1.1.2.0",
   "Author": "Lukas Böhm",
   "Description": "See live ChatGPT Codex task status, open the right task, and select its model and thinking level from Stream Deck.",
   "Category": "Fingertip Agent",
@@ -27,15 +27,6 @@
       "com.openai.codex"
     ]
   },
-  "Profiles": [
-    {
-      "Name": "profiles/codex-model-selector-dcccb5311f976db9",
-      "DeviceType": 2,
-      "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": true,
-      "Readonly": true
-    }
-  ],
   "Actions": [
     {
       "UUID": "com.lukas-bhm.fingertip.task",
@@ -55,10 +46,10 @@
       ]
     },
     {
-      "UUID": "com.lukas-bhm.fingertip.model-selector",
-      "Name": "Model Selector",
-      "Icon": "imgs/actions/model-selector/action-list",
-      "Tooltip": "Selects the model and thinking level for the active ChatGPT Task.",
+      "UUID": "com.lukas-bhm.fingertip.model",
+      "Name": "Codex Model",
+      "Icon": "imgs/actions/model/action-list",
+      "Tooltip": "Applies your chosen model and thinking level to the active ChatGPT thread.",
       "Controllers": [
         "Keypad"
       ],
@@ -66,58 +57,24 @@
       "SupportedInMultiActions": false,
       "States": [
         {
-          "Image": "imgs/actions/model-selector/key"
+          "Image": "imgs/actions/model/key"
         }
-      ]
-    },
-    {
-      "UUID": "com.lukas-bhm.fingertip.model-option",
-      "Name": "Model Option",
-      "Icon": "imgs/actions/model-selector/action-list",
-      "Tooltip": "Sets the model and thinking level for the active ChatGPT Task.",
-      "Controllers": [
-        "Keypad"
       ],
-      "VisibleInActionsList": false,
-      "UserTitleEnabled": false,
-      "SupportedInMultiActions": false,
-      "States": [
-        {
-          "Image": "imgs/actions/model-options/sol-low"
-        }
-      ]
+      "PropertyInspectorPath": "ui/model-key.html"
     },
     {
       "UUID": "com.lukas-bhm.fingertip.fast-mode",
       "Name": "Fast Mode",
-      "Icon": "imgs/actions/model-selector/action-list",
-      "Tooltip": "Toggles Fast Mode for the Task targeted by Model Selector.",
+      "Icon": "imgs/actions/model/action-list",
+      "Tooltip": "Toggles Fast Mode for the active ChatGPT thread.",
       "Controllers": [
         "Keypad"
       ],
-      "VisibleInActionsList": false,
       "UserTitleEnabled": false,
       "SupportedInMultiActions": false,
       "States": [
         {
-          "Image": "imgs/actions/model-selector/key"
-        }
-      ]
-    },
-    {
-      "UUID": "com.lukas-bhm.fingertip.model-selector-back",
-      "Name": "Back",
-      "Icon": "imgs/actions/model-selector/action-list",
-      "Tooltip": "Returns to the previous Stream Deck profile.",
-      "Controllers": [
-        "Keypad"
-      ],
-      "VisibleInActionsList": false,
-      "UserTitleEnabled": false,
-      "SupportedInMultiActions": false,
-      "States": [
-        {
-          "Image": "imgs/actions/model-selector/back"
+          "Image": "imgs/actions/model/key"
         }
       ]
     }

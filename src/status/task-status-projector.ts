@@ -36,6 +36,7 @@ export interface StatusPatch {
   readonly value?: unknown;
 }
 
+const MAXIMUM_MODEL_SETTING_BYTES = 256;
 const runtimeKinds = new Set<RuntimeKind>(["active", "idle", "notLoaded", "systemError"]);
 const activeFlags = new Set<ActiveFlag>(["waitingOnApproval", "waitingOnUserInput"]);
 const confirmationMethods = new Set([
@@ -131,8 +132,8 @@ function projectThreadSettings(
   if (!isRecord(value)) fail("latestThreadSettings must be an object");
   return Object.freeze({
     serviceTier: parseThreadSetting(value.serviceTier, "service tier", 64),
-    model: parseThreadSetting(value.model, "model", 128),
-    effort: parseThreadSetting(value.effort, "effort", 32),
+    model: parseThreadSetting(value.model, "model", MAXIMUM_MODEL_SETTING_BYTES),
+    effort: parseThreadSetting(value.effort, "effort", MAXIMUM_MODEL_SETTING_BYTES),
   });
 }
 
@@ -216,8 +217,8 @@ export function applyStatusPatches(
         const next = patch.op === "remove" ? null : requirePatchValue(patch);
         if (patch.path[1] === "serviceTier") {
           serviceTier = parseThreadSetting(next, "service tier", 64);
-        } else if (patch.path[1] === "model") model = parseThreadSetting(next, "model", 128);
-        else if (patch.path[1] === "effort") effort = parseThreadSetting(next, "effort", 32);
+        } else if (patch.path[1] === "model") model = parseThreadSetting(next, "model", MAXIMUM_MODEL_SETTING_BYTES);
+        else if (patch.path[1] === "effort") effort = parseThreadSetting(next, "effort", MAXIMUM_MODEL_SETTING_BYTES);
       }
       continue;
     }

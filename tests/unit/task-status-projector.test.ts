@@ -79,7 +79,7 @@ test("a rich desktop snapshot is reduced to bounded status facts without private
   assert.equal(JSON.stringify(projected).includes("PRIVATE"), false);
 });
 
-test("Model Selector and Fast Mode settings are projected without retaining other thread settings", () => {
+test("thread model and service tier settings are projected without retaining other thread settings", () => {
   const projected = projectStatusSnapshot({
     threadRuntimeStatus: { type: "idle" },
     hasUnreadTurn: false,
@@ -112,6 +112,55 @@ test("Model Selector and Fast Mode settings are projected without retaining othe
     value: { model: "gpt-5.6-sol", effort: "medium" },
   }]);
   assert.equal(toTaskLiveFacts(partialSettings).serviceTier, "priority");
+});
+
+test("dynamic model and effort identifiers up to 256 UTF-8 bytes survive snapshots and patches", () => {
+  const model = `future-${"m".repeat(249)}`;
+  const effort = "ä".repeat(128);
+  assert.equal(Buffer.byteLength(model, "utf8"), 256);
+  assert.equal(Buffer.byteLength(effort, "utf8"), 256);
+  const idle = {
+    threadRuntimeStatus: { type: "idle" },
+    hasUnreadTurn: false,
+    requests: [],
+  };
+  const snapshot = projectStatusSnapshot({ ...idle, latestThreadSettings: { model, effort } });
+  assert.equal(toTaskLiveFacts(snapshot).model, model);
+  assert.equal(toTaskLiveFacts(snapshot).effort, effort);
+
+  const empty = projectStatusSnapshot(idle);
+  const fields = applyStatusPatches(empty, [
+    { op: "replace", path: ["latestThreadSettings", "model"], value: model },
+    { op: "replace", path: ["latestThreadSettings", "effort"], value: effort },
+  ]);
+  const whole = applyStatusPatches(empty, [{
+    op: "replace", path: ["latestThreadSettings"], value: { model, effort },
+  }]);
+  assert.deepEqual(toTaskLiveFacts(fields), toTaskLiveFacts(snapshot));
+  assert.deepEqual(toTaskLiveFacts(whole), toTaskLiveFacts(snapshot));
+});
+
+test("model and effort settings over 256 UTF-8 bytes are rejected in snapshots and both patch forms", () => {
+  const idle = {
+    threadRuntimeStatus: { type: "idle" },
+    hasUnreadTurn: false,
+    requests: [],
+  };
+  const state = projectStatusSnapshot({ ...idle, latestThreadSettings: { model: "future-model", effort: "future-effort" } });
+  for (const field of ["model", "effort"] as const) {
+    for (const oversized of ["x".repeat(257), "ä".repeat(129)]) {
+      const message = new RegExp(`invalid ${field}`);
+      assert.throws(() => projectStatusSnapshot({ ...idle, latestThreadSettings: { [field]: oversized } }), message);
+      assert.throws(() => applyStatusPatches(state, [{
+        op: "replace", path: ["latestThreadSettings", field], value: oversized,
+      }]), message);
+      assert.throws(() => applyStatusPatches(state, [{
+        op: "replace", path: ["latestThreadSettings"], value: { [field]: oversized },
+      }]), message);
+    }
+  }
+  assert.equal(toTaskLiveFacts(state).model, "future-model");
+  assert.equal(toTaskLiveFacts(state).effort, "future-effort");
 });
 
 test("only the documented outstanding request categories require attention", () => {

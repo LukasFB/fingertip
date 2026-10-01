@@ -50,3 +50,42 @@ test("bundle resolver validates a discovered ChatGPT bundle before executing its
   assert.equal(calls.every((call) => call.timeoutMs === 5_000), true);
   assert.equal(calls.find((call) => call.command === "/usr/bin/mdfind")?.outputCap, 1024 * 1024);
 });
+
+test("bundle resolver prefers the running ChatGPT bundle with its nested signed CLI", async (context) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "fingertip-bundle-"));
+  context.after(async () => { await import("node:fs/promises").then((fs) => fs.rm(directory, { recursive: true })); });
+  const bundle = path.join(directory, "ChatGPT.app");
+  const binary = path.join(bundle, "Contents", "Resources", "codex-cli", "CodexCLI.app", "Contents", "MacOS", "codex");
+  await mkdir(path.dirname(binary), { recursive: true });
+  await writeFile(path.join(bundle, "Contents", "Info.plist"), "fixture");
+  await writeFile(binary, "#!/bin/sh\n");
+  await chmod(binary, 0o700);
+  const canonicalBundle = await realpath(bundle);
+  const canonicalBinary = await realpath(binary);
+  const executed: string[] = [];
+  const run: RunBoundedCommand = async (command, args) => {
+    if (command === "/usr/bin/lsappinfo") {
+      return args[0] === "find"
+        ? 'ASN:0x0-0x123-"ChatGPT":\n'
+        : `"ChatGPT" ASN:0x0-0x123:\n    bundle path="${bundle}"\n`;
+    }
+    if (command === "/usr/bin/mdfind") return "/Applications/Codex.app\n";
+    if (command === "/usr/bin/plutil") {
+      assert.equal(args.at(-1), path.join(canonicalBundle, "Contents", "Info.plist"));
+      if (args[1] === "CFBundleIdentifier") return "com.openai.codex\n";
+      if (args[1] === "CFBundleShortVersionString") return "26.928.20755\n";
+      if (args[1] === "CFBundleVersion") return "12246\n";
+    }
+    executed.push(command);
+    assert.equal(command, canonicalBinary);
+    assert.deepEqual(args, ["--version"]);
+    return "codex-cli 0.159.0\n";
+  };
+
+  const resolved = await new ChatGptBundleResolver({ run, homeDirectory: directory }).resolve();
+
+  assert.equal(resolved.bundlePath, canonicalBundle);
+  assert.equal(resolved.binaryPath, canonicalBinary);
+  assert.equal(resolved.codexVersion, "codex-cli 0.159.0");
+  assert.deepEqual(executed, [canonicalBinary]);
+});

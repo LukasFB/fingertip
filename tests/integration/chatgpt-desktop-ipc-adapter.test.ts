@@ -3,12 +3,11 @@ import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 
 import { parseTaskId } from "../../src/catalog/catalog-projection.ts";
 import { ChatGptDesktopIpcAdapter } from "../../src/desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
 import { encodeIpcFrame, IpcFrameDecoder } from "../../src/desktop-ipc/ipc-framer.ts";
-import { modelSelection } from "../../src/models/model-selection.ts";
 
 function withTimeout<T>(promise: Promise<T>, message: () => string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -21,6 +20,106 @@ function withTimeout<T>(promise: Promise<T>, message: () => string): Promise<T> 
       reject(error);
     });
   });
+}
+
+const settingsTaskId = parseTaskId("00000000-0000-4000-8000-000000000077");
+
+async function settingsFixture(
+  context: TestContext,
+  onSettingsRequest: (message: Readonly<Record<string, unknown>>, socket: net.Socket) => void,
+  fingerprint = "26.928.20755\u0000fixture",
+): Promise<Readonly<{
+  adapter: ChatGptDesktopIpcAdapter;
+  messages: Readonly<Record<string, unknown>>[];
+  send: (message: Readonly<Record<string, unknown>>) => void;
+  connectionCount: () => number;
+}>> {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "fingertip-settings-"));
+  await chmod(temp, 0o700);
+  const ipcDirectory = path.join(temp, "codex-ipc");
+  await mkdir(ipcDirectory, { mode: 0o700 });
+  const getuid = process.getuid;
+  assert.ok(getuid);
+  const messages: Readonly<Record<string, unknown>>[] = [];
+  const sockets = new Set<net.Socket>();
+  const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    const decoder = new IpcFrameDecoder();
+    socket.on("data", (chunk) => {
+      for (const message of decoder.push(chunk)) {
+        messages.push(message);
+        if (message.method === "initialize") {
+          socket.write(encodeIpcFrame({
+            type: "response", requestId: message.requestId, method: "initialize",
+            resultType: "success", handledByClientId: "settings-client", result: { clientId: "settings-client" },
+          }));
+        } else if (message.type === "request" && message.method === "thread-follower-update-thread-settings") {
+          onSettingsRequest(message, socket);
+        }
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(path.join(ipcDirectory, `ipc-${getuid()}.sock`), resolve));
+  let connectionCount = 0;
+  const adapter = new ChatGptDesktopIpcAdapter({
+    tempDirectory: temp, homeDirectory: path.join(temp, "missing-home"),
+    createConnection: (socketPath) => { connectionCount += 1; return net.createConnection(socketPath); },
+    setTimer: ((callback: (...args: unknown[]) => void, timeout?: number, ...args: unknown[]) =>
+      setTimeout(callback, timeout === 5_000 ? 250 : timeout, ...args)) as typeof setTimeout,
+  });
+  adapter.setCompatibilityFingerprint(fingerprint);
+  context.after(async () => {
+    adapter.stop();
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await rm(temp, { recursive: true, force: true });
+  });
+  await withTimeout(adapter.start(), () => "settings fixture handshake failed");
+  return {
+    adapter, messages, connectionCount: () => connectionCount,
+    send: (message) => {
+      const socket = [...sockets][0];
+      assert.ok(socket);
+      socket.write(encodeIpcFrame(message));
+    },
+  };
+}
+
+function settingsSnapshot(
+  settings: Readonly<Record<string, unknown>>,
+  revision = 1,
+  ownerClientId = "settings-owner",
+): Readonly<Record<string, unknown>> {
+  return {
+    type: "broadcast", method: "thread-stream-state-changed", version: 11, sourceClientId: ownerClientId,
+    params: {
+      hostId: "local", conversationId: settingsTaskId,
+      change: {
+        type: "snapshot", revision,
+        conversationState: {
+          threadRuntimeStatus: { type: "idle" }, hasUnreadTurn: false, requests: [], latestThreadSettings: settings,
+        },
+      },
+    },
+  };
+}
+
+function acknowledgeSettings(
+  socket: net.Socket,
+  request: Readonly<Record<string, unknown>>,
+  result: unknown = { applied: true },
+): void {
+  socket.write(encodeIpcFrame({
+    type: "response", requestId: request.requestId, resultType: "success",
+    method: "thread-follower-update-thread-settings", handledByClientId: "settings-owner", result,
+  }));
+}
+
+function waitForRecord(adapter: ChatGptDesktopIpcAdapter): Promise<void> {
+  return withTimeout(new Promise<void>((resolve) => {
+    const unsubscribe = adapter.onTaskRecord(() => { unsubscribe(); resolve(); });
+  }), () => "owner settings snapshot was not published");
 }
 
 test("desktop IPC prefers the secure current home endpoint over a legacy endpoint", async (context) => {
@@ -87,6 +186,221 @@ test("desktop IPC prefers the secure current home endpoint over a legacy endpoin
   assert.equal(legacyConnections, 0);
 });
 
+test("current settings requests confirm dynamic model and effort only through the accepting owner's stream", async (context) => {
+  let acknowledge!: () => void;
+  const { adapter, messages, send } = await settingsFixture(context, (request, socket) => {
+    acknowledge = () => acknowledgeSettings(socket, request);
+  });
+  adapter.selectActiveTask(settingsTaskId);
+  let settled = false;
+  const changed = adapter.setModelSelection(settingsTaskId, { model: "future-codex-model", effort: "future-effort" })
+    .then((result) => { settled = true; return result; });
+  while (acknowledge === undefined) await new Promise((resolve) => setImmediate(resolve));
+  const firstRecord = waitForRecord(adapter);
+  send(settingsSnapshot({ model: "future-codex-model", effort: "medium" }));
+  await firstRecord;
+  acknowledge();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false);
+  send({
+    type: "broadcast", method: "thread-stream-state-changed", version: 11, sourceClientId: "settings-owner",
+    params: {
+      hostId: "local", conversationId: settingsTaskId,
+      change: {
+        type: "patches", baseRevision: 1, revision: 2,
+        patches: [{ op: "replace", path: ["latestThreadSettings", "effort"], value: "future-effort" }],
+      },
+    },
+  });
+  assert.equal(await withTimeout(changed, () => "confirmed settings change did not settle"), true);
+  const request = messages.find((message) => message.method === "thread-follower-update-thread-settings");
+  assert.deepEqual(request, {
+    type: "request", requestId: request?.requestId, sourceClientId: "settings-client", version: 2,
+    method: "thread-follower-update-thread-settings",
+    params: { conversationId: settingsTaskId, threadSettings: { model: "future-codex-model", effort: "future-effort" } },
+  });
+});
+
+test("a stream readback arriving before the settings response also confirms models without an effort", async (context) => {
+  const { adapter } = await settingsFixture(context, (request, socket) => {
+    socket.write(encodeIpcFrame(settingsSnapshot({ model: "no-effort-model", effort: null })));
+    acknowledgeSettings(socket, request);
+  });
+  assert.equal(await adapter.setModelSelection(settingsTaskId, { model: "no-effort-model", effort: null }), true);
+});
+
+test("a rejected current envelope retries the legacy setter once and remembers its accepted version", async (context) => {
+  const { adapter, messages } = await settingsFixture(context, (request, socket) => {
+    if (request.version === 2) {
+      socket.write(encodeIpcFrame({
+        type: "response", requestId: request.requestId, resultType: "error", error: "no-client-found",
+      }));
+    } else {
+      socket.write(encodeIpcFrame(settingsSnapshot({ model: "old-app-model", effort: "high" })));
+      acknowledgeSettings(socket, request);
+    }
+  });
+  const selection = { model: "old-app-model", effort: "high" };
+  assert.equal(await adapter.setModelSelection(settingsTaskId, selection), true);
+  assert.equal(await adapter.setModelSelection(settingsTaskId, selection), true);
+  assert.deepEqual(messages.filter((message) => message.method === "thread-follower-update-thread-settings")
+    .map((message) => message.version), [2, 1, 1]);
+});
+
+test("known legacy desktop fingerprints select their settings envelope directly", async (context) => {
+  const { adapter, messages } = await settingsFixture(context, (request, socket) => {
+    socket.write(encodeIpcFrame(settingsSnapshot({ model: "legacy-model", effort: "high" })));
+    acknowledgeSettings(socket, request);
+  }, "26.707.100\u0000fixture");
+  assert.equal(await adapter.setModelSelection(settingsTaskId, { model: "legacy-model", effort: "high" }), true);
+  assert.equal(messages.find((message) => message.method === "thread-follower-update-thread-settings")?.version, 1);
+});
+
+test("missing or false applied results, handler failures and unconfirmed acknowledgements never report success or retry", async (context) => {
+  for (const failure of ["missing-applied", "applied-false", "handler-error", "timeout", "wrong-owner", "wrong-method", "missing-handler"] as const) {
+    await context.test(failure, async (subtest) => {
+      const { adapter, messages } = await settingsFixture(subtest, (request, socket) => {
+        if (failure === "handler-error") {
+          socket.write(encodeIpcFrame({ type: "response", requestId: request.requestId, resultType: "error", error: "unsupported-model" }));
+        } else if (failure === "wrong-method" || failure === "missing-handler") {
+          socket.write(encodeIpcFrame({
+            type: "response", requestId: request.requestId, resultType: "success",
+            method: failure === "wrong-method" ? "other-method" : "thread-follower-update-thread-settings",
+            ...(failure === "wrong-method" ? { handledByClientId: "settings-owner" } : {}), result: { applied: true },
+          }));
+        } else if (failure === "timeout" || failure === "wrong-owner") {
+          acknowledgeSettings(socket, request);
+          if (failure === "wrong-owner") socket.write(encodeIpcFrame(settingsSnapshot({ model: "requested", effort: "high" }, 1, "other-owner")));
+        } else {
+          socket.write(encodeIpcFrame(settingsSnapshot({ model: "requested", effort: "high" })));
+          acknowledgeSettings(socket, request, failure === "missing-applied" ? { ok: true } : { applied: false });
+        }
+      });
+      assert.equal(await adapter.setModelSelection(settingsTaskId, { model: "requested", effort: "high" }), false);
+      assert.equal(messages.filter((message) => message.method === "thread-follower-update-thread-settings").length, 1);
+      assert.equal(adapter.state, "online");
+    });
+  }
+});
+
+test("an old cached matching selection cannot confirm a request without a new authoritative readback", async (context) => {
+  const { adapter, send } = await settingsFixture(context, (request, socket) => acknowledgeSettings(socket, request));
+  adapter.selectActiveTask(settingsTaskId);
+  const firstSnapshot = waitForRecord(adapter);
+  send(settingsSnapshot({ model: "already-selected", effort: "high" }));
+  await firstSnapshot;
+  assert.equal(await adapter.setModelSelection(settingsTaskId, { model: "already-selected", effort: "high" }), false);
+});
+
+test("disconnect settles an acknowledged settings request that has no readback", async (context) => {
+  let requestAccepted!: () => void;
+  const accepted = new Promise<void>((resolve) => { requestAccepted = resolve; });
+  const { adapter } = await settingsFixture(context, (request, socket) => {
+    acknowledgeSettings(socket, request);
+    requestAccepted();
+  });
+  const changed = adapter.setModelSelection(settingsTaskId, { model: "requested", effort: "high" });
+  await accepted;
+  adapter.stop();
+  assert.equal(await changed, false);
+});
+
+test("stopping during socket lookup cancels the old start before opening a socket and permits its replacement", async (context) => {
+  const { adapter, connectionCount } = await settingsFixture(context, () => {});
+  adapter.stop();
+  const cancelled = adapter.start();
+  adapter.stop();
+  const replacement = adapter.start();
+  await assert.rejects(withTimeout(cancelled, () => "cancelled lookup left start pending"), /desktop IPC stopped/);
+  await withTimeout(replacement, () => "replacement start failed");
+  assert.equal(adapter.state, "online");
+  assert.equal(connectionCount(), 2);
+});
+
+test("an accepted legacy retry cannot overwrite the replacement connection's current protocol version", async (context) => {
+  let requestCount = 0;
+  const { adapter, messages } = await settingsFixture(context, (request, socket) => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      socket.write(encodeIpcFrame({
+        type: "response", requestId: request.requestId, resultType: "error", error: "request-version-mismatch",
+      }));
+      return;
+    }
+    // Accept the retry first, then deliver the readback in this same chunk.
+    // The task listener reconnects after confirmation but before its await
+    // continuation can cache the older envelope version.
+    socket.write(Buffer.concat([
+      encodeIpcFrame({
+        type: "response", requestId: request.requestId, resultType: "success",
+        method: "thread-follower-update-thread-settings", handledByClientId: "settings-owner", result: { applied: true },
+      }),
+      encodeIpcFrame(settingsSnapshot({ model: "requested", effort: "high" })),
+    ]));
+  });
+  let replacement!: Promise<void>;
+  const unsubscribe = adapter.onTaskRecord(() => {
+    unsubscribe();
+    adapter.stop();
+    replacement = adapter.start();
+  });
+  assert.equal(await adapter.setModelSelection(settingsTaskId, { model: "requested", effort: "high" }), true);
+  await withTimeout(replacement, () => "replacement connection after legacy response failed");
+  assert.equal(await adapter.setModelSelection(settingsTaskId, { model: "requested", effort: "high" }), true);
+  assert.deepEqual(messages.filter((message) => message.method === "thread-follower-update-thread-settings")
+    .map((message) => message.version), [2, 1, 2]);
+});
+
+test("read-state v3 and queue v2 keep current desktop state online and scoped to the local host", async (context) => {
+  const { adapter, messages, send } = await settingsFixture(context, () => {});
+  adapter.setCatalogTaskIds(new Set([settingsTaskId]));
+  const snapshot = waitForRecord(adapter);
+  send(settingsSnapshot({ model: "live-model", effort: "high" }));
+  await snapshot;
+  assert.equal(adapter.markTaskUnread(settingsTaskId), false);
+  const contextPayload = {
+    identity: { kind: "chatgpt", accountId: "local-account", userId: "local-user", secret: "must-not-cross" },
+    executionHostKey: "local-execution-host", private: "must-not-cross",
+  };
+  const read = waitForRecord(adapter);
+  send({
+    type: "broadcast", method: "thread-read-state-changed", version: 3,
+    params: { conversationId: settingsTaskId, hostId: "local", hasUnreadTurn: false, context: contextPayload },
+  });
+  await read;
+  assert.equal(adapter.markTaskUnread(settingsTaskId), true);
+  const queued = waitForRecord(adapter);
+  send({
+    type: "broadcast", method: "thread-queued-followups-changed", version: 2,
+    params: { conversationId: settingsTaskId, hostId: "local", messages: [{ id: "queued", text: "must-not-cross" }] },
+  });
+  await queued;
+  send({
+    type: "broadcast", method: "thread-read-state-changed", version: 3,
+    params: { conversationId: settingsTaskId, hostId: "remote", hasUnreadTurn: false, context: contextPayload },
+  });
+  send({
+    type: "broadcast", method: "thread-queued-followups-changed", version: 2,
+    params: { conversationId: settingsTaskId, hostId: "remote", messages: [] },
+  });
+  for (let iteration = 0; iteration < 3; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(adapter.state, "online");
+  assert.equal(adapter.getRecord(settingsTaskId)?.facts.hasUnreadTurn, true);
+  assert.equal(adapter.getRecord(settingsTaskId)?.queuedFollowUpCount, 1);
+  const unreadMessage = messages.find((message) => message.method === "thread-read-state-changed");
+  assert.deepEqual(unreadMessage, {
+    type: "broadcast", sourceClientId: "settings-client", method: "thread-read-state-changed", version: 3,
+    params: {
+      conversationId: settingsTaskId, hostId: "local", hasUnreadTurn: true,
+      context: { identity: { kind: "chatgpt", accountId: "local-account", userId: "local-user" }, executionHostKey: "local-execution-host" },
+    },
+  });
+  assert.equal(JSON.stringify(messages).includes("must-not-cross"), false);
+  adapter.stop();
+  await withTimeout(adapter.start(), () => "read-state reconnect failed");
+  assert.equal(adapter.markTaskUnread(settingsTaskId), false);
+});
+
 test("desktop IPC performs the exact handshake and publishes only sanitized owner snapshots", async (context) => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "fingertip-ipc-"));
   await chmod(temp, 0o700);
@@ -119,7 +433,7 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
             resultType: "success",
             method: "thread-follower-update-thread-settings",
             handledByClientId: "owner-client",
-            result: { ok: true },
+            result: { applied: !("model" in ((message.params as { threadSettings: object }).threadSettings)) },
           }));
         }
         if (message.type === "broadcast" && message.method === "thread-stream-following-changed"
@@ -231,6 +545,7 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     tempDirectory: temp,
     homeDirectory: path.join(temp, "home-without-ipc"),
   });
+  adapter.setCompatibilityFingerprint("26.715.100\u0000fixture");
   const catalogHints: string[] = [];
   const activeTaskIds: Array<string | null> = [];
   adapter.onCatalogHint((taskId) => catalogHints.push(taskId));
@@ -257,7 +572,7 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
   await directReceived;
   const unreadTaskId = parseTaskId("00000000-0000-4000-8000-000000000001");
   assert.equal(adapter.markTaskUnread(unreadTaskId), true);
-  assert.equal(await adapter.setModelSelection(unreadTaskId, modelSelection("terra", "xhigh")), true);
+  assert.equal(await adapter.setModelSelection(unreadTaskId, { model: "gpt-5.6-terra", effort: "xhigh" }), false);
   assert.equal(await adapter.setFastMode(unreadTaskId, true), true);
   assert.equal(await adapter.setFastMode(unreadTaskId, false), true);
   for (let iteration = 0; iteration < 3; iteration += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -299,7 +614,7 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
     type: "request",
     requestId: modelRequest?.requestId,
     sourceClientId: "desktop-client",
-    version: 1,
+    version: 2,
     method: "thread-follower-update-thread-settings",
     params: {
       conversationId: unreadTaskId,

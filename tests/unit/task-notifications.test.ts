@@ -111,16 +111,19 @@ test("macOS notifications and system sounds use fixed executables without a shel
   });
 });
 
-test("a selected custom audio is bounded, copied locally, and used for its status", async () => {
+test("a selected custom audio is bounded, copied locally, and used for its status", { timeout: 2_000 }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "fingertip-sounds-"));
   const source = path.join(directory, "chosen.wav");
   const destination = path.join(directory, "stored");
   await writeFile(source, "audio");
   const calls: Array<{ file: string; args: readonly string[] }> = [];
+  let played: () => void = () => undefined;
+  const audioPlayed = new Promise<void>((resolve) => { played = resolve; });
   const notifier = new MacTaskNotifier({
     soundDirectory: destination,
     execFile(file, args, _options, callback) {
       calls.push({ file, args });
+      if (file === "/usr/bin/afplay") played();
       callback(null, file === "/usr/bin/osascript" ? `${source}\n` : "");
     },
   });
@@ -138,9 +141,7 @@ test("a selected custom audio is bounded, copied locally, and used for its statu
     repeatDelayMs: 250,
       taskTitle: "Custom",
     });
-    for (let iteration = 0; iteration < 5; iteration += 1) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
+    await audioPlayed;
     assert.deepEqual(calls.at(-1), {
       file: "/usr/bin/afplay",
       args: ["-v", "0.75", path.join(destination, "done-custom.wav")],

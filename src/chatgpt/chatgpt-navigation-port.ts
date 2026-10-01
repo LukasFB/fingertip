@@ -1,11 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 
 import type { TaskId } from "../catalog/catalog-projection.ts";
-import {
-  MODEL_EFFORTS,
-  MODEL_FAMILIES,
-  type ModelSelection,
-} from "../models/model-selection.ts";
 import type { ChatGptWindowTarget } from "../settings/task-key-settings.ts";
 
 interface NavigationChild {
@@ -32,8 +27,6 @@ const defaultSpawn: SpawnProcess = (command, args, options) =>
 const CODEX_BUNDLE_ID = "com.openai.codex";
 const WINDOW_FOCUS_TIMEOUT_MS = 650;
 const NAVIGATION_TIMEOUT_MS = 5_000;
-const MODEL_MENU_RESET_STEPS = 8;
-const EFFORT_MENU_RESET_STEPS = 6;
 
 function focusWindowScript(target: Exclude<ChatGptWindowTarget, "last-active">): string {
   const comparison = target === "leftmost" ? "candidateX < targetX" : "candidateX > targetX";
@@ -79,47 +72,6 @@ function newChatScript(): string {
   tell chatGptProcess
     set frontmost to true
     keystroke "n" using command down
-  end tell
-end tell`;
-}
-
-function keyCodeLines(keyCode: number, count: number): string {
-  return Array.from({ length: count }, () => `    key code ${keyCode}`).join("\n");
-}
-
-export function composerModelSelectionScript(selection: ModelSelection): string {
-  const modelIndex = MODEL_FAMILIES.indexOf(selection.family);
-  const effortIndex = MODEL_EFFORTS.indexOf(selection.effort);
-  const resetModelSteps = keyCodeLines(126, MODEL_MENU_RESET_STEPS);
-  const resetEffortSteps = keyCodeLines(126, EFFORT_MENU_RESET_STEPS);
-  // The /model picker exposes one keyboard-selectable control before the first model.
-  // Reset to the top, skip that control, then count within our model matrix.
-  const modelSteps = keyCodeLines(125, modelIndex + 1);
-  const effortSteps = keyCodeLines(125, effortIndex);
-  return `tell application "System Events"
-  set matchingProcesses to every application process whose bundle identifier is "com.openai.codex"
-  if (count of matchingProcesses) is 0 then error "ChatGPT is not running"
-  set chatGptProcess to item 1 of matchingProcesses
-  tell chatGptProcess
-    set frontmost to true
-    delay 0.12
-    keystroke " /model"
-    delay 0.16
-    key code 36
-    delay 0.18
-${resetModelSteps}
-${modelSteps}
-    key code 36
-    delay 0.16
-    keystroke "/reasoning"
-    delay 0.16
-    key code 36
-    delay 0.18
-${resetEffortSteps}
-${effortSteps}
-    key code 36
-    delay 0.08
-    key code 51
   end tell
 end tell`;
 }
@@ -196,14 +148,6 @@ export class ChatGptNavigationPort {
       "/usr/bin/osascript",
       ["-e", newChatScript()],
       WINDOW_FOCUS_TIMEOUT_MS,
-    );
-  }
-
-  async setComposerModelSelection(selection: ModelSelection): Promise<boolean> {
-    return this.#run(
-      "/usr/bin/osascript",
-      ["-e", composerModelSelectionScript(selection)],
-      NAVIGATION_TIMEOUT_MS,
     );
   }
 

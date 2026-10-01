@@ -5,7 +5,6 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { parseTaskId, type TaskId } from "../catalog/catalog-projection.ts";
-import type { ModelSelection } from "../models/model-selection.ts";
 import {
   applyStatusPatches,
   deriveTaskStatus,
@@ -37,7 +36,17 @@ interface OwnerState {
 interface PendingRequest {
   readonly timer: ReturnType<typeof setTimeout>;
   readonly method: string;
-  readonly resolve: (value: boolean) => void;
+  readonly taskId: TaskId;
+  readonly selection?: Readonly<{ model: string; effort: string | null }>;
+  readonly resolve: (value: boolean | "unsupported") => void;
+  appliedByClientId?: string;
+  readbackByClientId?: string;
+}
+
+interface ReadStateContext {
+  readonly identity: Readonly<{ kind: "chatgpt"; accountId: string; userId: string }>
+    | Readonly<{ kind: "execution-storage"; authMode: string }>;
+  readonly executionHostKey: string;
 }
 
 interface DesktopIpcAdapterOptions {
@@ -71,6 +80,33 @@ const THREAD_FOLLOWER_REQUEST_TIMEOUT_MS = 5_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseReadStateContext(value: unknown): ReadStateContext | null {
+  if (!isRecord(value) || !isRecord(value.identity)) return null;
+  try {
+    const executionHostKey = boundedString(value.executionHostKey);
+    const identity = value.identity;
+    if (identity.kind === "chatgpt") {
+      return Object.freeze({
+        identity: Object.freeze({
+          kind: "chatgpt",
+          accountId: boundedString(identity.accountId),
+          userId: boundedString(identity.userId),
+        }),
+        executionHostKey,
+      });
+    }
+    if (identity.kind === "execution-storage") {
+      return Object.freeze({
+        identity: Object.freeze({ kind: "execution-storage", authMode: boundedString(identity.authMode) }),
+        executionHostKey,
+      });
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function boundedString(value: unknown): string {
@@ -157,6 +193,9 @@ export class ChatGptDesktopIpcAdapter {
   #incompatibleLatched = false;
   #state: "connecting" | "online" | "offline" | "incompatible" = "offline";
   #activeTaskId: TaskId | null = null;
+  #threadSettingsRequestVersion: 1 | 2 = 2;
+  #readStateVersion: 1 | 2 | 3 = 3;
+  #readStateContext: ReadStateContext | null = null;
 
   constructor(options?: Partial<DesktopIpcAdapterOptions>) {
     this.#options = {
@@ -228,37 +267,34 @@ export class ChatGptDesktopIpcAdapter {
     this.#reconcileFollowing();
   }
 
-  async setModelSelection(taskId: TaskId, selection: ModelSelection): Promise<boolean> {
-    return this.#requestThreadFollower(
-      "thread-follower-update-thread-settings",
-      {
-        conversationId: taskId,
-        threadSettings: { model: selection.model, effort: selection.effort },
-      },
-      THREAD_FOLLOWER_REQUEST_TIMEOUT_MS,
-    );
+  async setModelSelection(
+    taskId: TaskId,
+    selection: Readonly<{ model: string; effort: string | null }>,
+  ): Promise<boolean> {
+    return this.#requestThreadSettings(taskId, { model: selection.model, effort: selection.effort }, selection);
   }
 
   async setFastMode(taskId: TaskId, enabled: boolean): Promise<boolean> {
-    return this.#requestThreadFollower(
-      "thread-follower-update-thread-settings",
-      {
-        conversationId: taskId,
-        threadSettings: { serviceTier: enabled ? "priority" : null },
-      },
-      THREAD_FOLLOWER_REQUEST_TIMEOUT_MS,
-    );
+    return this.#requestThreadSettings(taskId, { serviceTier: enabled ? "priority" : null });
   }
 
   markTaskUnread(taskId: TaskId): boolean {
     if (this.#state !== "online" || this.#clientId === null) return false;
+    // Version 3 scopes read state to the account and execution host. Only reuse
+    // the context supplied by this connection; guessed context is not accepted.
+    if (this.#readStateVersion === 3 && this.#readStateContext === null) return false;
     try {
       this.#write({
         type: "broadcast",
         method: "thread-read-state-changed",
-        version: 2,
+        version: this.#readStateVersion,
         sourceClientId: this.#clientId,
-        params: { conversationId: taskId, hostId: "local", hasUnreadTurn: true },
+        params: {
+          conversationId: taskId,
+          ...(this.#readStateVersion === 1 ? {} : { hostId: "local" }),
+          hasUnreadTurn: true,
+          ...(this.#readStateVersion === 3 ? { context: this.#readStateContext } : {}),
+        },
       });
       const current = this.#owners.get(taskId);
       if (current !== undefined) {
@@ -284,6 +320,9 @@ export class ChatGptDesktopIpcAdapter {
     if (this.#state !== "online" || this.#clientId === null) return;
     const desiredTaskIds = new Set(this.#requestedHydrationTaskIds);
     if (this.#activeTaskId !== null) desiredTaskIds.add(this.#activeTaskId);
+    for (const pending of this.#pendingRequests.values()) {
+      if (pending.selection !== undefined) desiredTaskIds.add(pending.taskId);
+    }
     for (const taskId of this.#followedTaskIds) {
       if (desiredTaskIds.has(taskId)) continue;
       this.#announceFollowing(taskId, false);
@@ -298,28 +337,60 @@ export class ChatGptDesktopIpcAdapter {
     }
   }
 
-  async #requestThreadFollower(
-    method: string,
-    params: Readonly<Record<string, unknown>>,
-    timeoutMs: number,
+  async #requestThreadSettings(
+    taskId: TaskId,
+    threadSettings: Readonly<Record<string, unknown>>,
+    selection?: Readonly<{ model: string; effort: string | null }>,
   ): Promise<boolean> {
+    const connectionGeneration = this.#connectionGeneration;
+    const version = this.#threadSettingsRequestVersion;
+    const result = await this.#requestThreadFollower(taskId, threadSettings, version, selection);
+    if (result !== "unsupported") return result;
+    if (connectionGeneration !== this.#connectionGeneration) return false;
+    // A refusal before dispatch is safe to retry. A timeout, a handler error,
+    // or applied:false may have reached the owner and must never trigger retry.
+    const alternateVersion = version === 2 ? 1 : 2;
+    const retry = await this.#requestThreadFollower(taskId, threadSettings, alternateVersion, selection);
+    if (retry === true && connectionGeneration === this.#connectionGeneration) {
+      this.#threadSettingsRequestVersion = alternateVersion;
+    }
+    return retry === true;
+  }
+
+  async #requestThreadFollower(
+    taskId: TaskId,
+    threadSettings: Readonly<Record<string, unknown>>,
+    version: 1 | 2,
+    selection?: Readonly<{ model: string; effort: string | null }>,
+  ): Promise<boolean | "unsupported"> {
+    const method = "thread-follower-update-thread-settings";
     const clientId = this.#clientId;
     if (this.#state !== "online" || clientId === null) return false;
     const requestId = randomUUID();
-    return new Promise<boolean>((resolve) => {
+    return new Promise<boolean | "unsupported">((resolve) => {
       const timer = this.#options.setTimer(() => {
-        this.#pendingRequests.delete(requestId);
-        resolve(false);
-      }, timeoutMs);
-      this.#pendingRequests.set(requestId, { timer, method, resolve });
+        this.#settlePendingRequest(requestId, false);
+      }, THREAD_FOLLOWER_REQUEST_TIMEOUT_MS);
+      this.#pendingRequests.set(requestId, {
+        timer, method, taskId, resolve,
+        ...(selection === undefined ? {} : { selection: Object.freeze({ ...selection }) }),
+      });
       try {
+        const alreadyFollowing = this.#followedTaskIds.has(taskId);
+        this.#reconcileFollowing();
+        // Repeating the subscription requests a current owner snapshot, even
+        // for an idempotent change that produces no settings patch.
+        if (selection !== undefined && alreadyFollowing) {
+          const ownerClientId = this.#owners.get(taskId)?.ownerClientId;
+          this.#announceFollowing(taskId, true, ownerClientId === undefined ? undefined : [ownerClientId]);
+        }
         this.#write({
           type: "request",
           requestId,
           sourceClientId: clientId,
-          version: 1,
+          version,
           method,
-          params,
+          params: { conversationId: taskId, threadSettings },
         });
       } catch {
         this.#settlePendingRequest(requestId, false);
@@ -330,6 +401,7 @@ export class ChatGptDesktopIpcAdapter {
   setCompatibilityFingerprint(fingerprint: string): void {
     if (fingerprint === this.#compatibilityFingerprint) return;
     this.#compatibilityFingerprint = fingerprint;
+    this.#resetProtocolVersions();
     this.#schemaFailureCount = 0;
     this.#lastSchemaFailureSignature = "";
     this.#incompatibleLatched = false;
@@ -352,6 +424,7 @@ export class ChatGptDesktopIpcAdapter {
       throw new Error("desktop IPC already started");
     }
     this.#stopping = false;
+    this.#resetProtocolVersions();
     const connectionGeneration = ++this.#connectionGeneration;
     this.#clearOwnerHandoffTimers();
     this.#owners.clear();
@@ -364,9 +437,12 @@ export class ChatGptDesktopIpcAdapter {
     this.#clearQueuedFollowUpHandoffs();
     this.#setState("connecting");
     const endpoint = await this.#findSocketEndpoint().catch((error: unknown) => {
-      this.#setState("offline");
+      if (connectionGeneration === this.#connectionGeneration) this.#setState("offline");
       throw error;
     });
+    if (connectionGeneration !== this.#connectionGeneration || this.#stopping) {
+      throw new Error("desktop IPC stopped");
+    }
     const { socketPath, identity: before } = endpoint;
     return new Promise<void>((resolve, reject) => {
       this.#startResolve = resolve;
@@ -398,7 +474,9 @@ export class ChatGptDesktopIpcAdapter {
             params: { clientType: "fingertip-stream-deck" },
           });
           this.#handshakeTimer = this.#options.setTimer(() => this.#failConnection("handshake"), 2_000);
-        }).catch(() => this.#failConnection("handshake"));
+        }).catch(() => {
+          if (connectionGeneration === this.#connectionGeneration) this.#failConnection("handshake");
+        });
       });
       socket.on("data", (chunk) => {
         if (connectionGeneration === this.#connectionGeneration) this.#receive(chunk);
@@ -415,6 +493,7 @@ export class ChatGptDesktopIpcAdapter {
 
   stop(): void {
     this.#stopping = true;
+    this.#readStateContext = null;
     this.#connectionGeneration += 1;
     this.#clearHandshakeTimer();
     this.#socket?.destroy();
@@ -548,8 +627,24 @@ export class ChatGptDesktopIpcAdapter {
       const requestId = typeof message.requestId === "string" ? message.requestId : "";
       const pending = this.#pendingRequests.get(requestId);
       if (pending !== undefined) {
-        const success = message.method === pending.method && message.resultType === "success";
-        this.#settlePendingRequest(requestId, success);
+        if (message.resultType === "error" && (message.method === undefined || message.method === pending.method)) {
+          const unsupported = message.error === "request-version-mismatch"
+            || message.error === "no-handler-for-request" || message.error === "no-client-found";
+          this.#settlePendingRequest(requestId, unsupported ? "unsupported" : false);
+        } else if (message.method !== pending.method || message.resultType !== "success"
+          || !isRecord(message.result) || message.result.applied !== true) {
+          this.#settlePendingRequest(requestId, false);
+        } else if (pending.selection === undefined) {
+          this.#settlePendingRequest(requestId, true);
+        } else {
+          try {
+            pending.appliedByClientId = boundedString(message.handledByClientId);
+          } catch {
+            this.#settlePendingRequest(requestId, false);
+            return;
+          }
+          this.#confirmModelSelectionRequests(pending.taskId);
+        }
       }
       return;
     }
@@ -577,9 +672,7 @@ export class ChatGptDesktopIpcAdapter {
       return;
     }
     if (method === "thread-read-state-changed") {
-      // Desktop 26.715 raised the envelope version without changing the
-      // sanitized conversationId/hasUnreadTurn payload used below.
-      if (message.version !== 1 && message.version !== 2) return this.#latchIncompatible();
+      if (message.version !== 1 && message.version !== 2 && message.version !== 3) return this.#latchIncompatible();
       this.#handleReadState(message);
       return;
     }
@@ -589,7 +682,7 @@ export class ChatGptDesktopIpcAdapter {
       return;
     }
     if (method === "thread-queued-followups-changed") {
-      if (message.version === 1) this.#handleQueuedFollowUps(message);
+      if (message.version === 1 || message.version === 2) this.#handleQueuedFollowUps(message);
       return;
     }
     if (method === "thread-archived" || method === "thread-unarchived") {
@@ -642,8 +735,13 @@ export class ChatGptDesktopIpcAdapter {
     const current = this.#owners.get(taskId);
     if (change.type === "snapshot") {
       const revision = nonNegativeInteger(change.revision);
-      if (current?.ownerClientId === ownerClientId && revision <= current.revision) return;
+      if (current?.ownerClientId === ownerClientId && revision < current.revision) return;
       const projection = projectStatusSnapshot(change.conversationState);
+      this.#observeSettingsReadback(taskId, ownerClientId, projection);
+      if (current?.ownerClientId === ownerClientId && revision === current.revision) {
+        this.#confirmModelSelectionRequests(taskId);
+        return;
+      }
       this.#hydrationsInFlight.delete(taskId);
       this.#publish(taskId, ownerClientId, revision, projection);
       this.#schemaFailureCount = 0;
@@ -663,6 +761,7 @@ export class ChatGptDesktopIpcAdapter {
       return;
     }
     const projection = applyStatusPatches(current.projection, change.patches);
+    this.#observeSettingsReadback(taskId, ownerClientId, projection);
     this.#publish(taskId, ownerClientId, revision, projection);
     this.#schemaFailureCount = 0;
     this.#lastSchemaFailureSignature = "";
@@ -699,6 +798,16 @@ export class ChatGptDesktopIpcAdapter {
   #handleReadState(message: Readonly<Record<string, unknown>>): void {
     const params = message.params;
     if (!isRecord(params) || typeof params.hasUnreadTurn !== "boolean") throw new TypeError("invalid read state");
+    if (params.hostId !== undefined && params.hostId !== "local") return;
+    if (message.version === 3) {
+      if (params.hostId !== "local") return;
+      const context = parseReadStateContext(params.context);
+      if (context === null) return;
+      this.#readStateContext = context;
+      this.#readStateVersion = 3;
+    } else if (this.#readStateContext === null && !this.#isCurrentReadStateProtocol()) {
+      this.#readStateVersion = message.version as 1 | 2;
+    }
     const taskId = parseTaskId(params.conversationId);
     if (!this.#catalogTaskIds.has(taskId)) return;
     const current = this.#owners.get(taskId);
@@ -716,6 +825,8 @@ export class ChatGptDesktopIpcAdapter {
   #handleQueuedFollowUps(message: Readonly<Record<string, unknown>>): void {
     const params = message.params;
     if (!isRecord(params) || !Array.isArray(params.messages) || params.messages.length > 256) return;
+    if (message.version === 2 && params.hostId !== "local") return;
+    if (params.hostId !== undefined && params.hostId !== "local") return;
     const messages = params.messages;
     let taskId: TaskId;
     try {
@@ -792,7 +903,49 @@ export class ChatGptDesktopIpcAdapter {
       this.#queuedFollowUpCountByTaskId.get(taskId) ?? 0,
     );
     this.#owners.set(taskId, Object.freeze({ ownerClientId, revision, projection, record }));
+    this.#confirmModelSelectionRequests(taskId);
     this.#emitTask(record);
+  }
+
+  #confirmModelSelectionRequests(taskId: TaskId): void {
+    const record = this.#owners.get(taskId)?.record;
+    if (record?.freshness !== "fresh") return;
+    for (const [requestId, pending] of this.#pendingRequests) {
+      const selection = pending.selection;
+      if (pending.taskId !== taskId || selection === undefined
+        || pending.appliedByClientId !== record.ownerClientId
+        || pending.readbackByClientId !== record.ownerClientId) continue;
+      const effortMatches = selection.effort === null
+        ? record.facts.effort == null
+        : record.facts.effort === selection.effort;
+      if (record.facts.model === selection.model && effortMatches) this.#settlePendingRequest(requestId, true);
+    }
+  }
+
+  #observeSettingsReadback(taskId: TaskId, ownerClientId: string, projection: ProjectedStatusState): void {
+    for (const pending of this.#pendingRequests.values()) {
+      const selection = pending.selection;
+      if (pending.taskId !== taskId || selection === undefined) continue;
+      const effortMatches = selection.effort === null ? projection.effort == null : projection.effort === selection.effort;
+      if (projection.model === selection.model && effortMatches) pending.readbackByClientId = ownerClientId;
+      else delete pending.readbackByClientId;
+    }
+  }
+
+  #isCurrentReadStateProtocol(): boolean {
+    const version = this.#compatibilityFingerprint.split("\u0000")[0] ?? "";
+    const match = /^(\d+)\.(\d+)/u.exec(version);
+    return match !== null && (Number(match[1]) > 26 || (Number(match[1]) === 26 && Number(match[2]) >= 928));
+  }
+
+  #resetProtocolVersions(): void {
+    const version = this.#compatibilityFingerprint.split("\u0000")[0] ?? "";
+    // These older envelopes are evidenced by the supported desktop builds.
+    // Other builds begin with the current protocol and can refuse a version
+    // explicitly before the settings request is retried.
+    this.#threadSettingsRequestVersion = version.startsWith("26.707.") ? 1 : 2;
+    this.#readStateVersion = version.startsWith("26.707.") ? 1 : version.startsWith("26.715.") ? 2 : 3;
+    this.#readStateContext = null;
   }
 
   #write(message: Readonly<Record<string, unknown>>): void {
@@ -812,6 +965,7 @@ export class ChatGptDesktopIpcAdapter {
   }
 
   #latchIncompatible(): void {
+    this.#readStateContext = null;
     this.#incompatibleLatched = true;
     this.#setState("incompatible");
     this.#clearOwnerHandoffTimers();
@@ -830,6 +984,7 @@ export class ChatGptDesktopIpcAdapter {
 
   #failConnection(reason: "transport" | "handshake" | "schema", signature = ""): void {
     if (this.#stopping || this.#state === "incompatible") return;
+    this.#readStateContext = null;
     if (reason === "schema") {
       if (signature === this.#lastSchemaFailureSignature) this.#schemaFailureCount += 1;
       else {
@@ -941,12 +1096,19 @@ export class ChatGptDesktopIpcAdapter {
     this.#queuedFollowUpHandoffs.clear();
   }
 
-  #settlePendingRequest(requestId: string, value: boolean): void {
+  #settlePendingRequest(requestId: string, value: boolean | "unsupported"): void {
     const pending = this.#pendingRequests.get(requestId);
     if (pending === undefined) return;
     this.#pendingRequests.delete(requestId);
     this.#options.clearTimer(pending.timer);
     pending.resolve(value);
+    if (this.#state === "online" && this.#socket !== null && !this.#socket.destroyed) {
+      try {
+        this.#reconcileFollowing();
+      } catch {
+        // A request still settles if the transport disappears during cleanup.
+      }
+    }
   }
 
   #settleAllPendingRequests(value: boolean): void {

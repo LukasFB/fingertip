@@ -3,6 +3,7 @@ import type { Readable, Writable } from "node:stream";
 
 const MAXIMUM_JSONL_BYTES = 16 * 1024 * 1024;
 const RESPONSE_TIMEOUT_MS = 5_000;
+const INITIALIZE_TIMEOUT_MS = 30_000;
 
 export type AppServerProtocolSignature = "initialize" | "jsonl" | "message";
 
@@ -13,6 +14,16 @@ export class AppServerProtocolError extends Error {
     super("catalog protocol is incompatible");
     this.name = "AppServerProtocolError";
     this.signature = signature;
+  }
+}
+
+export class AppServerRequestError extends Error {
+  readonly code: number;
+
+  constructor(code: number) {
+    super("catalog request failed");
+    this.name = "AppServerRequestError";
+    this.code = code;
   }
 }
 
@@ -46,10 +57,16 @@ interface AppServerCatalogClientOptions {
   readonly reapWaitMs: number;
 }
 
-interface PendingRequest {
+interface QueuedRequest {
   readonly id: number;
+  readonly method: string;
+  readonly params: Readonly<Record<string, unknown>>;
+  readonly timeoutMs: number;
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: Error) => void;
+}
+
+interface PendingRequest extends QueuedRequest {
   readonly timer: ReturnType<typeof setTimeout>;
 }
 
@@ -92,11 +109,15 @@ export class AppServerCatalogClient {
   readonly #options: AppServerCatalogClientOptions;
   #child: AppServerChild | null = null;
   #pending: PendingRequest | null = null;
+  #queued: QueuedRequest[] = [];
+  #dispatchScheduled = false;
   #nextRequestId = 1;
   #accumulator = Buffer.alloc(0);
+  #discardingOversizedRead = false;
   #exit: Promise<void> | null = null;
   #resolveExit: (() => void) | null = null;
   #stopPromise: Promise<void> | null = null;
+  #stopping = false;
   #invalidReason: Error | null = null;
   #state: "stopped" | "starting" | "ready" | "invalid" = "stopped";
 
@@ -116,7 +137,7 @@ export class AppServerCatalogClient {
   }
 
   async start(): Promise<void> {
-    if (this.#state !== "stopped") throw new Error("catalog client already started");
+    if (this.#state !== "stopped" || this.#stopping) throw new Error("catalog client already started");
     this.#stopPromise = null;
     this.#invalidReason = null;
     this.#state = "starting";
@@ -143,7 +164,7 @@ export class AppServerCatalogClient {
     const result = await this.#request("initialize", {
       clientInfo: { name: "fingertip", title: "Fingertip Stream Deck Plugin", version: "0.1.0" },
       capabilities: { experimentalApi: true },
-    });
+    }, INITIALIZE_TIMEOUT_MS);
     if (!isRecord(result)) {
       const error = new AppServerProtocolError("initialize");
       this.#invalidate(error);
@@ -173,6 +194,14 @@ export class AppServerCatalogClient {
     return this.#request("thread/list", params);
   }
 
+  async listModels(input: { readonly limit: number; readonly cursor?: string }): Promise<unknown> {
+    if (this.#state === "invalid" && this.#invalidReason !== null) throw this.#invalidReason;
+    if (this.#state !== "ready") throw new Error("catalog client is not ready");
+    const params: Record<string, unknown> = { limit: input.limit, includeHidden: false };
+    if (input.cursor !== undefined) params.cursor = input.cursor;
+    return this.#request("model/list", params);
+  }
+
   async readThread(input: { readonly threadId: string }): Promise<unknown> {
     if (this.#state === "invalid" && this.#invalidReason !== null) throw this.#invalidReason;
     if (this.#state !== "ready") throw new Error("catalog client is not ready");
@@ -189,7 +218,9 @@ export class AppServerCatalogClient {
     if (this.#stopPromise !== null) return this.#stopPromise;
     const child = this.#child;
     const exit = this.#exit;
-    this.#rejectPending(new Error("catalog client stopped"));
+    this.#stopping = true;
+    this.#state = "stopped";
+    this.#rejectRequests(new Error("catalog client stopped"));
     this.#stopPromise = (async () => {
       if (child !== null && exit !== null) {
         child.stdin.end();
@@ -205,27 +236,46 @@ export class AppServerCatalogClient {
       this.#exit = null;
       this.#resolveExit = null;
       this.#accumulator = Buffer.alloc(0);
+      this.#discardingOversizedRead = false;
       this.#invalidReason = null;
       this.#state = "stopped";
+      this.#stopping = false;
     })();
     return this.#stopPromise;
   }
 
-  #request(method: string, params: Readonly<Record<string, unknown>>): Promise<unknown> {
-    if (this.#pending !== null) return Promise.reject(new Error("catalog request already in flight"));
+  #request(method: string, params: Readonly<Record<string, unknown>>, timeoutMs = RESPONSE_TIMEOUT_MS): Promise<unknown> {
+    if (this.#queued.length >= 128) return Promise.reject(new Error("catalog request queue exceeds limit"));
     const id = this.#nextRequestId;
     this.#nextRequestId += 1;
     return new Promise((resolve, reject) => {
-      const timer = this.#options.setTimer(
-        () => this.#invalidate(new Error("catalog response timeout")),
-        RESPONSE_TIMEOUT_MS,
-      );
-      this.#pending = { id, resolve, reject, timer };
-      try {
-        this.#write({ id, method, params });
-      } catch {
-        this.#invalidate(new Error("catalog process write failed"));
-      }
+      this.#queued.push({ id, method, params, timeoutMs, resolve, reject });
+      this.#dispatchNextRequest();
+    });
+  }
+
+  #dispatchNextRequest(): void {
+    if (this.#pending !== null || (this.#state !== "starting" && this.#state !== "ready")) return;
+    const request = this.#queued.shift();
+    if (request === undefined) return;
+    const timer = this.#options.setTimer(
+      () => this.#invalidate(new Error("catalog response timeout")),
+      request.timeoutMs,
+    );
+    this.#pending = { ...request, timer };
+    try {
+      this.#write({ id: request.id, method: request.method, params: request.params });
+    } catch {
+      this.#invalidate(new Error("catalog process write failed"));
+    }
+  }
+
+  #scheduleNextRequest(): void {
+    if (this.#dispatchScheduled || this.#queued.length === 0) return;
+    this.#dispatchScheduled = true;
+    queueMicrotask(() => {
+      this.#dispatchScheduled = false;
+      this.#dispatchNextRequest();
     });
   }
 
@@ -236,16 +286,40 @@ export class AppServerCatalogClient {
 
   #receive(chunk: Buffer): void {
     if (this.#state === "invalid" || this.#state === "stopped") return;
-    if (this.#accumulator.length + chunk.length > MAXIMUM_JSONL_BYTES) {
-      this.#invalidate(new AppServerProtocolError("jsonl"));
-      return;
-    }
-    this.#accumulator = Buffer.concat([this.#accumulator, chunk]);
-    let newline = this.#accumulator.indexOf(0x0a);
-    while (newline >= 0) {
-      const line = this.#accumulator.subarray(0, newline);
-      this.#accumulator = this.#accumulator.subarray(newline + 1);
-      if (line.length === 0 || line.length > MAXIMUM_JSONL_BYTES) {
+    let remaining = chunk;
+    while (remaining.length > 0) {
+      const newline = remaining.indexOf(0x0a);
+      if (this.#discardingOversizedRead) {
+        if (newline < 0) return;
+        this.#discardingOversizedRead = false;
+        this.#rejectPending(new Error("catalog history response exceeds limit"));
+        this.#scheduleNextRequest();
+        remaining = remaining.subarray(newline + 1);
+        continue;
+      }
+      const fragment = newline < 0 ? remaining : remaining.subarray(0, newline);
+      if (this.#accumulator.length + fragment.length > MAXIMUM_JSONL_BYTES) {
+        if (this.#pending?.method !== "thread/read") {
+          this.#invalidate(new AppServerProtocolError("jsonl"));
+          return;
+        }
+        this.#accumulator = Buffer.alloc(0);
+        // Keep the read request and its deadline until the complete frame has
+        // drained, so the next RPC cannot start behind a partial response.
+        if (newline < 0) {
+          this.#discardingOversizedRead = true;
+          return;
+        }
+        this.#rejectPending(new Error("catalog history response exceeds limit"));
+        this.#scheduleNextRequest();
+        remaining = remaining.subarray(newline + 1);
+        continue;
+      }
+      this.#accumulator = Buffer.concat([this.#accumulator, fragment]);
+      if (newline < 0) return;
+      const line = this.#accumulator;
+      this.#accumulator = Buffer.alloc(0);
+      if (line.length === 0) {
         this.#invalidate(new AppServerProtocolError("jsonl"));
         return;
       }
@@ -261,7 +335,7 @@ export class AppServerCatalogClient {
         return;
       }
       if (!this.#handleMessage(parsed)) return;
-      newline = this.#accumulator.indexOf(0x0a);
+      remaining = remaining.subarray(newline + 1);
     }
   }
 
@@ -288,15 +362,25 @@ export class AppServerCatalogClient {
       this.#invalidate(new AppServerProtocolError("message"));
       return false;
     }
+    let requestError: AppServerRequestError | undefined;
+    if ("error" in message) {
+      const error = message.error;
+      if (!isRecord(error) || typeof error.code !== "number"
+        || !Number.isSafeInteger(error.code) || typeof error.message !== "string") {
+        this.#invalidate(new AppServerProtocolError("message"));
+        return false;
+      }
+      requestError = new AppServerRequestError(error.code);
+    }
     this.#pending = null;
     this.#options.clearTimer(pending.timer);
-    if ("error" in message) {
-      const error = new AppServerProtocolError("message");
-      pending.reject(error);
-      this.#invalidate(error);
-      return false;
+    if (requestError !== undefined) {
+      pending.reject(requestError);
+      this.#scheduleNextRequest();
+      return true;
     }
     pending.resolve(message.result);
+    this.#scheduleNextRequest();
     return true;
   }
 
@@ -308,12 +392,20 @@ export class AppServerCatalogClient {
     pending.reject(error);
   }
 
+  #rejectRequests(error: Error): void {
+    this.#rejectPending(error);
+    const queued = this.#queued;
+    this.#queued = [];
+    for (const request of queued) request.reject(error);
+  }
+
   #invalidate(error: Error = new Error("catalog generation invalidated")): void {
     if (this.#state === "invalid" || this.#state === "stopped") return;
     this.#state = "invalid";
     this.#invalidReason = error;
     this.#accumulator = Buffer.alloc(0);
-    this.#rejectPending(error);
+    this.#discardingOversizedRead = false;
+    this.#rejectRequests(error);
     this.#child?.stdin.end();
   }
 }

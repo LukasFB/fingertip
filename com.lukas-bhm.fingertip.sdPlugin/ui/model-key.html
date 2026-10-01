@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Codex Model Settings</title>
+  <script>
+    window.connectElgatoStreamDeckSocket = (...args) => {
+      window.__fingertipModelPendingConnection = args;
+    };
+  </script>
+  <script src="model-key.js"></script>
+  <style>
+    :root { color-scheme: dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
+    body { margin: 0; padding: 12px; color: #f7f7f7; background: #292929; }
+    .item { display: grid; grid-template-columns: 94px minmax(0, 1fr); gap: 10px; align-items: center; margin: 0 0 12px; }
+    .item[hidden] { display: none; }
+    .tabs { position: sticky; z-index: 2; top: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 0 0 14px; padding: 3px; border-radius: 7px; background: #202020; }
+    .tabs button { min-width: 0; min-height: 28px; padding: 0 4px; color: #ccc; font-size: 11px; border: 1px solid transparent; background: #383838; }
+    .tabs button[aria-selected="true"] { color: #111; border-color: #bde2fa; background: #96cff4; }
+    label { color: #d4d4d4; text-align: right; }
+    input, select, button { box-sizing: border-box; width: 100%; accent-color: #96cff4; }
+    select { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
+    input[type="color"] { min-height: 30px; padding: 2px; border: 1px solid #555; border-radius: 5px; background: #383838; cursor: pointer; }
+    .range { display: grid; grid-template-columns: 1fr 38px; gap: 8px; align-items: center; }
+    .value { color: #96cff4; text-align: right; font-variant-numeric: tabular-nums; }
+    .segments { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 6px; background: #202020; }
+    .segments button { min-height: 26px; color: #ccc; border: 1px solid transparent; background: #383838; }
+    .segments button[aria-pressed="true"] { color: #111; border-color: #bde2fa; background: #96cff4; }
+    .helper, .notice { color: #aaa; font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+    .helper { margin-top: 4px; }
+    #preview { width: 92px; height: 92px; border-radius: 12px; background: #0b0d10; box-shadow: 0 0 20px rgba(150, 207, 244, .18); }
+    #catalog-status, #target-status { line-height: 1.4; overflow-wrap: anywhere; }
+    button { min-height: 30px; color: #111; font-weight: 600; border: 0; border-radius: 5px; background: #96cff4; cursor: pointer; }
+    button.secondary { color: #eee; border: 1px solid #666; background: #3a3a3a; }
+    button:disabled, select:disabled { cursor: default; opacity: .6; }
+    .notice { margin-top: 16px; padding: 9px; border: 1px solid #555; border-radius: 5px; background: #232323; }
+  </style>
+</head>
+<body>
+  <nav class="tabs" aria-label="Settings sections">
+    <button type="button" data-tab-button="general" aria-selected="true">General</button>
+    <button type="button" data-tab-button="appearance" aria-selected="false">Appearance</button>
+    <button type="button" data-tab-button="status" aria-selected="false">Status</button>
+  </nav>
+  <div class="item" data-tab="general">
+    <label for="model">Model</label>
+    <select id="model"><option value="">Choose a model…</option></select>
+  </div>
+  <div class="item" data-tab="general">
+    <label for="effort">Thinking Level</label>
+    <div><select id="effort"><option value="">Choose a model first</option></select><div id="effort-description" class="helper"></div></div>
+  </div>
+  <div class="item" data-tab="general">
+    <label></label>
+    <div>
+      <div class="helper">Press this key to apply its model and thinking level to the active Codex thread.</div>
+      <div id="selection-status" class="helper" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label></label><div class="helper">Appearance · Applies to this key.</div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label for="background-color">Background</label><input id="background-color" type="color" value="#06090b">
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label for="model-size">Model Size</label>
+    <div class="range"><input id="model-size" type="range" min="6" max="14" step="1" value="10"><span id="model-size-value" class="value">10 px</span></div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label for="effort-size">Thinking Size</label>
+    <div class="range"><input id="effort-size" type="range" min="6" max="14" step="1" value="9"><span id="effort-size-value" class="value">9 px</span></div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label>Alignment</label>
+    <div class="segments" role="group" aria-label="Text alignment">
+      <button type="button" data-alignment="left" aria-pressed="false">Left</button>
+      <button type="button" data-alignment="center" aria-pressed="true">Center</button>
+      <button type="button" data-alignment="right" aria-pressed="false">Right</button>
+    </div>
+  </div>
+  <div class="item" data-tab="appearance" hidden>
+    <label></label><button id="reset-appearance" class="secondary" type="button">Reset appearance to defaults</button>
+  </div>
+  <div class="item" data-tab="status" hidden>
+    <label>Preview</label><img id="preview" alt="Current Codex Model key preview">
+  </div>
+  <div class="item" data-tab="status" hidden>
+    <label>Models</label><div id="catalog-status" role="status" aria-live="polite">Loading available models…</div>
+  </div>
+  <div class="item" data-tab="status" hidden>
+    <label>Target</label><div id="target-status">Waiting for the active thread…</div>
+  </div>
+  <div class="item" data-tab="status" hidden>
+    <label></label><button id="refresh-models" type="button">Refresh models</button>
+  </div>
+  <div class="notice">Models and supported thinking levels come from your installed Codex app. The key applies to whichever thread is active when pressed.</div>
+  <script>
+    const model = document.querySelector("#model");
+    const effort = document.querySelector("#effort");
+    const description = document.querySelector("#effort-description");
+    const selectionStatus = document.querySelector("#selection-status");
+    const background = document.querySelector("#background-color");
+    const modelSize = document.querySelector("#model-size");
+    const effortSize = document.querySelector("#effort-size");
+    const alignments = [...document.querySelectorAll("[data-alignment]")];
+    const tabButtons = [...document.querySelectorAll("[data-tab-button]")];
+    const tabContents = [...document.querySelectorAll("[data-tab]")];
+    let settings = {};
+    let catalog = { models: [], loading: true, error: null };
+
+    function efforts(entry) {
+      return Array.isArray(entry?.supportedReasoningEfforts) ? entry.supportedReasoningEfforts : [];
+    }
+
+    function renderSelection() {
+      const entries = Array.isArray(catalog.models) ? catalog.models : [];
+      const selected = entries.find((entry) => entry.model === settings.model);
+      model.replaceChildren(new Option("Choose a model…", ""));
+      for (const entry of entries) {
+        model.add(new Option(entry.displayName || entry.model, entry.model));
+      }
+      if (settings.model && !selected) model.add(new Option(`${settings.model} (saved · unavailable)`, settings.model));
+      model.value = settings.model || "";
+      model.disabled = entries.length === 0;
+      const levels = efforts(selected);
+      effort.replaceChildren();
+      if (!selected || levels.length === 0 || !settings.effort) {
+        effort.add(new Option(selected ? "Default thinking" : "Choose a model first", ""));
+      }
+      for (const level of levels) {
+        effort.add(new Option(level.reasoningEffort, level.reasoningEffort));
+      }
+      const chosenEffort = levels.find((level) => level.reasoningEffort === settings.effort);
+      if (settings.effort && !chosenEffort) effort.add(new Option(`${settings.effort} (saved · unavailable)`, settings.effort));
+      effort.value = settings.effort || "";
+      effort.disabled = levels.length === 0;
+      description.textContent = chosenEffort?.description || "";
+      if (catalog.loading && entries.length === 0) selectionStatus.textContent = "Loading available models…";
+      else if (catalog.error && entries.length === 0) selectionStatus.textContent = settings.model
+        ? "The saved selection is retained. Models are unavailable; refresh them in Status."
+        : "Models are unavailable. Open Codex and refresh models in Status.";
+      else if (!settings.model) selectionStatus.textContent = "Choose a model and thinking level for this key.";
+      else if (!selected) selectionStatus.textContent = "The saved model is retained. Refresh models to check its availability.";
+      else if (settings.effort && !chosenEffort) selectionStatus.textContent = "The saved thinking level is unavailable for this model. Choose a supported level.";
+      else if (levels.length > 0 && !settings.effort) selectionStatus.textContent = "Choose a thinking level for this model.";
+      else if (levels.length === 0) selectionStatus.textContent = "This model exposes no configurable thinking levels.";
+      else if (catalog.activeThreadId === null) selectionStatus.textContent = "Open a Codex thread before pressing this key.";
+      else if (catalog.error) selectionStatus.textContent = "The saved catalog is shown. Refresh models to check availability.";
+      else selectionStatus.textContent = "Ready to apply to the active thread.";
+    }
+
+    FingertipModelPI.onSettings((value) => {
+      settings = value;
+      background.value = settings.backgroundColor;
+      modelSize.value = String(settings.modelFontSize);
+      effortSize.value = String(settings.effortFontSize);
+      document.querySelector("#model-size-value").textContent = `${settings.modelFontSize} px`;
+      document.querySelector("#effort-size-value").textContent = `${settings.effortFontSize} px`;
+      for (const button of alignments) button.setAttribute("aria-pressed", String(button.dataset.alignment === settings.textAlignment));
+      renderSelection();
+    });
+    FingertipModelPI.onState((value) => {
+      catalog = value;
+      if (typeof value.preview === "string" && value.preview.startsWith("data:image/")) document.querySelector("#preview").src = value.preview;
+      const count = Array.isArray(value.models) ? value.models.length : 0;
+      document.querySelector("#catalog-status").textContent = value.error
+        ? `${value.error}${count ? " Saved model catalog is shown." : ""}`
+        : value.loading ? "Refreshing available models…" : count ? `${count} models available.` : "No models available. Refresh to retry.";
+      document.querySelector("#target-status").textContent = value.activeThreadId
+        ? "Active Codex thread detected." : "No active Codex thread detected. Open a thread before pressing the key.";
+      document.querySelector("#refresh-models").disabled = value.loading === true;
+      renderSelection();
+    });
+    model.addEventListener("change", () => FingertipModelPI.selectModel(model.value));
+    effort.addEventListener("change", () => FingertipModelPI.setSettings({ effort: effort.value }));
+    background.addEventListener("input", () => FingertipModelPI.setSettings({ backgroundColor: background.value }));
+    modelSize.addEventListener("input", () => FingertipModelPI.setSettings({ modelFontSize: Number(modelSize.value) }));
+    effortSize.addEventListener("input", () => FingertipModelPI.setSettings({ effortFontSize: Number(effortSize.value) }));
+    for (const button of alignments) button.addEventListener("click", () => FingertipModelPI.setSettings({ textAlignment: button.dataset.alignment }));
+    for (const button of tabButtons) button.addEventListener("click", () => {
+      for (const tab of tabButtons) tab.setAttribute("aria-selected", String(tab === button));
+      for (const content of tabContents) content.hidden = content.dataset.tab !== button.dataset.tabButton;
+    });
+    document.querySelector("#refresh-models").addEventListener("click", () => FingertipModelPI.retry());
+    document.querySelector("#reset-appearance").addEventListener("click", () => FingertipModelPI.resetAppearance());
+  </script>
+</body>
+</html>

@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-import { MODEL_SELECTOR_PROFILE } from "../../src/models/model-selector-profile.ts";
 
 test("Property Inspector is fully local and exposes only the approved controls and notice", async () => {
   const html = await readFile("com.lukas-bhm.fingertip.sdPlugin/ui/task-key.html", "utf8");
@@ -88,70 +86,29 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(bridge.includes("sessionStorage"), false);
 });
 
-test("manifest exposes Codex Task and Model Selector while hiding profile implementation actions", async () => {
-  const manifest = JSON.parse(await readFile(
-    "com.lukas-bhm.fingertip.sdPlugin/manifest.json",
-    "utf8",
-  )) as {
-    Name: string;
-    Category: string;
-    CategoryIcon: string;
-    Description: string;
-    Profiles?: Array<{ Name: string; DeviceType: number; Readonly?: boolean }>;
-    Actions: Array<{
-      UUID: string;
-      Name: string;
-      Icon: string;
-      VisibleInActionsList?: boolean;
-    }>;
+test("manifest exposes configurable model and fast-mode keys without selector profiles", async () => {
+  const manifest = JSON.parse(await readFile("com.lukas-bhm.fingertip.sdPlugin/manifest.json", "utf8")) as {
+    Name: string; Category: string; CategoryIcon: string; Profiles?: unknown;
+    Actions: Array<{ UUID: string; Name: string; Icon: string; PropertyInspectorPath?: string; VisibleInActionsList?: boolean }>;
   };
   assert.equal(manifest.Name, "Fingertip Agent");
   assert.equal(manifest.Category, "Fingertip Agent");
   assert.equal(manifest.CategoryIcon, "imgs/plugin/category-list");
-  assert.equal(
-    manifest.Description,
-    "See live ChatGPT Codex task status, open the right task, and select its model and thinking level from Stream Deck.",
-  );
-  assert.deepEqual(manifest.Profiles, [{
-    Name: MODEL_SELECTOR_PROFILE.name,
-    AutoInstall: true,
-    DeviceType: 2,
-    DontAutoSwitchWhenInstalled: true,
-    Readonly: true,
-  }]);
-  assert.deepEqual(manifest.Actions.filter((entry) => !entry.UUID.endsWith(".model-option")
-    && !entry.UUID.endsWith(".fast-mode")
-    && !entry.UUID.endsWith(".model-selector-back")).map(({ UUID, Name }) => ({ UUID, Name })), [{
-    UUID: "com.lukas-bhm.fingertip.task",
-    Name: "Codex Task",
-  }, {
-    UUID: "com.lukas-bhm.fingertip.model-selector",
-    Name: "Model Selector",
-  }]);
-  assert.equal(manifest.Actions[0]?.Icon, "imgs/actions/task/action-list");
-  const profilePage = JSON.parse(execFileSync("/usr/bin/unzip", [
-    "-p",
-    `com.lukas-bhm.fingertip.sdPlugin/${MODEL_SELECTOR_PROFILE.name}.streamDeckProfile`,
-    `Profiles/${MODEL_SELECTOR_PROFILE.profileId}.sdProfile/Profiles/${MODEL_SELECTOR_PROFILE.pageId}/manifest.json`,
-  ], { encoding: "utf8" })) as { Controllers: Array<{ Actions: Record<string, { UUID: string; Settings: { family?: string; effort?: string } }> }> };
-  const actions = profilePage.Controllers[0]?.Actions ?? {};
-  assert.equal(Object.values(actions).filter((entry) => entry.UUID.endsWith(".model-option")).length, 20);
-  for (const [row, family] of ["astra", "sol", "terra", "luna"].entries()) {
-    for (const [column, effort] of ["low", "medium", "high", "xhigh", "max"].entries()) {
-      assert.deepEqual(actions[`${column},${row}`]?.Settings, { family, effort });
-    }
-  }
-  assert.equal(actions["5,0"]?.UUID, "com.lukas-bhm.fingertip.fast-mode");
-  assert.equal(actions["7,3"]?.UUID, "com.lukas-bhm.fingertip.model-selector-back");
-  assert.equal(manifest.Actions.find((entry) => entry.UUID.endsWith(".fast-mode"))
-    ?.VisibleInActionsList, false);
+  assert.equal(manifest.Profiles, undefined);
+  assert.deepEqual(manifest.Actions.map(({ UUID, Name }) => ({ UUID, Name })), [
+    { UUID: "com.lukas-bhm.fingertip.task", Name: "Codex Task" },
+    { UUID: "com.lukas-bhm.fingertip.model", Name: "Codex Model" },
+    { UUID: "com.lukas-bhm.fingertip.fast-mode", Name: "Fast Mode" },
+  ]);
+  assert.equal(manifest.Actions[1]?.PropertyInspectorPath, "ui/model-key.html");
+  assert.equal(manifest.Actions.every((entry) => entry.VisibleInActionsList !== false), true);
 });
 
 test("action-list icons are white SVGs with transparent backgrounds", async () => {
   for (const path of [
     "com.lukas-bhm.fingertip.sdPlugin/imgs/plugin/category-list.svg",
     "com.lukas-bhm.fingertip.sdPlugin/imgs/actions/task/action-list.svg",
-    "com.lukas-bhm.fingertip.sdPlugin/imgs/actions/model-selector/action-list.svg",
+    "com.lukas-bhm.fingertip.sdPlugin/imgs/actions/model/action-list.svg",
   ]) {
     const svg = await readFile(path, "utf8");
     assert.match(svg, /stroke="#FFFFFF"/u);

@@ -1,6 +1,6 @@
 {
   "name": "fingertip-agent",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,12 +8,10 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "npm run pack:model-selector-profile && npm run build-audio-helper && rollup -c",
+    "build": "npm run build-audio-helper && rollup -c",
     "build-audio-helper": "bash scripts/build-audio-helper.sh",
     "generate:marketplace-assets": "node scripts/generate-marketplace-assets.mjs",
     "generate:release-gallery": "node scripts/generate-release-gallery.mjs",
-    "build:model-selector-assets": "node scripts/build-model-selector-assets.mjs",
-    "pack:model-selector-profile": "node scripts/build-model-selector-profile.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
     "lint": "eslint src tests rollup.config.mjs eslint.config.mjs",

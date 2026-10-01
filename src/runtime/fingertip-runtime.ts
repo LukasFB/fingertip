@@ -6,6 +6,7 @@ import type { JsonValue } from "@elgato/utils";
 import {
   AppServerCatalogClient,
   AppServerProtocolError,
+  AppServerRequestError,
 } from "../catalog/app-server-catalog-client.ts";
 import { parseTaskId, type TaskId } from "../catalog/catalog-projection.ts";
 import { type CatalogTask } from "../catalog/task-feed.ts";
@@ -26,11 +27,9 @@ import {
   selectDiagnosticCode,
 } from "../diagnostics/safe-diagnostics.ts";
 import { ChatGptDesktopIpcAdapter, type LiveTaskRecord } from "../desktop-ipc/chatgpt-desktop-ipc-adapter.ts";
-import {
-  modelSelectionImagePath,
-  modelSelectionMatches,
-  type ModelSelection,
-} from "../models/model-selection.ts";
+import { discoverModels, type ModelCatalogEntry } from "../models/model-catalog.ts";
+import { renderModelKeyDataUrl } from "../rendering/model-key-renderer.ts";
+import type { ModelKeySettings } from "../settings/model-key-settings.ts";
 import { MacTaskNotifier, type TaskNotifier } from "../notifications/mac-task-notifier.ts";
 import type { FastModeVisualState } from "../rendering/fast-mode-key-renderer.ts";
 import { taskTransitionNotification } from "../notifications/task-transition-notification.ts";
@@ -56,6 +55,7 @@ const RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000] as const;
 const DESKTOP_WARNING_GRACE_MS = 10_000;
 const DESKTOP_HYDRATION_GRACE_MS = 2_500;
 const TASK_CHANGE_REFRESH_MS = 45_000;
+const MODEL_CATALOG_REFRESH_MS = 60_000;
 export const KEY_HOLD_THRESHOLD_MS = 600;
 export const KEY_DOUBLE_TAP_WINDOW_MS = 300;
 export const TASK_HIGHLIGHT_DURATION_MS = 15 * 60 * 1_000;
@@ -76,26 +76,12 @@ interface FastModeEntry {
   readonly animator: FastModeKeyAnimator;
 }
 
-interface ModelOptionEntry {
+interface ConfiguredModelKeyEntry {
   readonly action: ModelKeyActionPort;
-  readonly selection: ModelSelection;
+  settings: ModelKeySettings;
   lastImage: string;
-}
-
-interface KnownModelSettings {
-  readonly model?: string | null | undefined;
-  readonly effort?: string | null | undefined;
-}
-
-type ModelSelectorTarget = Readonly<
-  | { kind: "task"; taskId: TaskId }
-  | { kind: "composer" }
->;
-
-function modelSelectorTarget(taskId: TaskId | null): ModelSelectorTarget {
-  return taskId === null
-    ? Object.freeze({ kind: "composer" })
-    : Object.freeze({ kind: "task", taskId });
+  pendingImage: string | null;
+  rendering: boolean;
 }
 
 export interface CatalogClientLifecyclePort extends CatalogRpcPort {
@@ -103,6 +89,7 @@ export interface CatalogClientLifecyclePort extends CatalogRpcPort {
   stop(): Promise<void>;
   readThread?(input: { readonly threadId: string }): Promise<unknown>;
   readThreadGoal?(input: { readonly threadId: string }): Promise<unknown>;
+  listModels?(input: { readonly limit: number; readonly cursor?: string }): Promise<unknown>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -149,10 +136,10 @@ export class FingertipRuntime {
   readonly #registry: TaskKeyRegistry;
   readonly #catalogCompatibility = new CatalogCompatibilityTracker();
   readonly #live = new Map<string, LiveTaskRecord>();
-  readonly #modelSelectorActions = new Map<string, ModelKeyActionPort>();
-  readonly #modelOptionActions = new Map<string, ModelOptionEntry>();
+  readonly #pendingDoneNotifications = new Map<string, LiveTaskRecord>();
+  readonly #modelKeyActions = new Map<string, ConfiguredModelKeyEntry>();
+  readonly #modelInspectorConsumers = new Set<string>();
   readonly #fastModeActions = new Map<string, FastModeEntry>();
-  readonly #knownModelSettings = new Map<TaskId, KnownModelSettings>();
   readonly #knownServiceTiers = new Map<TaskId, string | null>();
   readonly #liveExpiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   readonly #propertyInspectorConsumers = new Set<string>();
@@ -164,6 +151,9 @@ export class FingertipRuntime {
   #bundle: ResolvedChatGptBundle | null = null;
   #catalogClient: CatalogClientLifecyclePort | null = null;
   #catalogService: TaskCatalogService | null = null;
+  #catalogStartGeneration: number | null = null;
+  #catalogStopped: Promise<void> | null = null;
+  readonly #catalogClientStops = new WeakMap<CatalogClientLifecyclePort, Promise<void>>();
   #catalogTimer: ReturnType<typeof setTimeout> | null = null;
   #ipcTimer: ReturnType<typeof setTimeout> | null = null;
   #shutdownTimer: ReturnType<typeof setTimeout> | null = null;
@@ -190,8 +180,12 @@ export class FingertipRuntime {
   readonly #doubleTapTaskIds = new Map<string, TaskId | null>();
   readonly #highlightedTaskIds = new Set<TaskId>();
   readonly #highlightExpiryTimers = new Map<TaskId, ReturnType<typeof setTimeout>>();
-  #modelSelectorTarget: ModelSelectorTarget | null = null;
-  #composerModelSettings: KnownModelSettings | null = null;
+  #models: readonly ModelCatalogEntry[] = [];
+  #modelCatalogLoading = false;
+  #modelCatalogError: string | null = null;
+  #modelCatalogRequest: Promise<void> | null = null;
+  #modelCatalogTimer: ReturnType<typeof setTimeout> | null = null;
+  #modelsRefreshedAt: number | null = null;
 
   constructor(options: Partial<RuntimeOptions> & Pick<RuntimeOptions, "propertyInspector">) {
     this.#options = {
@@ -219,6 +213,8 @@ export class FingertipRuntime {
     });
     this.#options.desktopIpc.onHealth((state) => {
       this.#acceptDesktopState(state);
+      this.#renderModelKeyActions();
+      void this.#sendVisibleModelPropertyInspectors();
       if (state === "online") {
         this.#clearIpcRetry();
         this.#ipcAttempt = 0;
@@ -229,16 +225,15 @@ export class FingertipRuntime {
     });
     this.#options.desktopIpc.onTaskRecord((record) => {
       const previous = this.#live.get(record.taskId);
-      const visibleTaskIds = new Set(this.#visibleTaskIds());
-      const visibleTask = this.#catalogView.feed?.find((task) => task.id === record.taskId
-        && visibleTaskIds.has(task.id));
-      this.#live.set(record.taskId, record);
-      const knownSettings = this.#knownModelSettings.get(record.taskId);
-      const model = record.facts.model === undefined ? knownSettings?.model : record.facts.model;
-      const effort = record.facts.effort === undefined ? knownSettings?.effort : record.facts.effort;
-      if (model !== undefined || effort !== undefined) {
-        this.#knownModelSettings.set(record.taskId, Object.freeze({ model, effort }));
+      if (record.status !== "done" || record.freshness !== "fresh") {
+        this.#pendingDoneNotifications.delete(record.taskId);
       }
+      const feed = this.#catalogView.feed;
+      const observers = this.#registry.entries()
+        .filter((entry) => feed !== null && this.#taskForSettings(entry.settings, feed)?.id === record.taskId)
+        .map((entry) => ({ entry, taskSource: entry.settings.taskSource, taskPosition: entry.settings.taskPosition }));
+      const visibleTask = observers.length === 0 ? undefined : feed?.find((task) => task.id === record.taskId);
+      this.#live.set(record.taskId, record);
       if (record.facts.serviceTier !== undefined) {
         this.#knownServiceTiers.set(record.taskId, record.facts.serviceTier);
       }
@@ -246,20 +241,67 @@ export class FingertipRuntime {
         this.#catalogView = this.#catalogService.rerank(this.#liveStatuses());
         this.#hydrateVisibleTaskStatuses();
       }
-      const notification = visibleTask === undefined
-        ? null
-        : taskTransitionNotification(previous, record, this.#appearance, visibleTask.title);
-      if (notification !== null) this.#options.notifier.notify(notification);
-      if (!this.#catalogHas(record.taskId)) this.#scheduleLiveExpiry(record.taskId);
+      if (visibleTask !== undefined) {
+        void this.#notifyTaskTransition(previous, record, visibleTask.title, () => observers.some(
+          ({ entry, taskSource, taskPosition }) => this.#registry.get(entry.action.id) === entry
+            && entry.settings.taskSource === taskSource && entry.settings.taskPosition === taskPosition,
+        ));
+      }
+      if (!this.#retainLiveRecord(record.taskId)) this.#scheduleLiveExpiry(record.taskId);
       this.#renderAll();
     });
-    this.#options.desktopIpc.onActiveTask?.((taskId) => {
-      if (this.#modelOptionActions.size !== 0 || this.#fastModeActions.size !== 0) {
-        this.#modelSelectorTarget = modelSelectorTarget(taskId);
-      }
+    this.#options.desktopIpc.onActiveTask?.(() => {
+      this.#hydrateVisibleTaskStatuses();
       this.#renderAll();
     });
     this.#options.desktopIpc.onCatalogHint(() => this.#queueCatalogRefresh());
+  }
+
+  async #notifyTaskTransition(
+    previous: LiveTaskRecord | undefined,
+    record: LiveTaskRecord,
+    taskTitle: string,
+    isStillObserved: () => boolean,
+  ): Promise<void> {
+    const notification = taskTransitionNotification(previous, record, this.#appearance, taskTitle);
+    if (notification === null) return;
+    const client = this.#catalogClient;
+    if (notification.status !== "done") {
+      this.#options.notifier.notify(notification);
+      return;
+    }
+    if (client === null) return;
+    if (client.readThreadGoal === undefined) {
+      this.#options.notifier.notify(notification);
+      return;
+    }
+
+    const generation = this.#generation;
+    this.#pendingDoneNotifications.set(record.taskId, record);
+    try {
+      // A finished turn can be followed by another Goal turn. Check the current
+      // Goal even when its badge is hidden, rather than relying on the badge cache.
+      let result: unknown;
+      try {
+        result = await client.readThreadGoal({ threadId: record.taskId });
+      } catch (error) {
+        // Older app servers can lack Goals altogether. Other failures leave the
+        // Goal state unknown; let catalog recovery handle them without notifying.
+        if (!(error instanceof AppServerRequestError && error.code === -32601)) return;
+      }
+      if (isRecord(result) && isRecord(result.goal) && result.goal.status === "active") return;
+      const current = this.#live.get(record.taskId);
+      if (!this.#running || generation !== this.#generation || client !== this.#catalogClient
+        || this.#pendingDoneNotifications.get(record.taskId) !== record
+        || current?.status !== "done" || current.freshness !== "fresh"
+        || !this.#catalogHas(record.taskId) || !isStillObserved()) return;
+      const currentNotification = taskTransitionNotification(previous, current, this.#appearance, taskTitle);
+      if (currentNotification !== null) this.#options.notifier.notify(currentNotification);
+    } finally {
+      if (this.#pendingDoneNotifications.get(record.taskId) === record) {
+        this.#pendingDoneNotifications.delete(record.taskId);
+      }
+    }
   }
 
   normalizeSettings(value: unknown): TaskKeySettings {
@@ -305,33 +347,42 @@ export class FingertipRuntime {
     this.#scheduleShutdownIfUnused();
   }
 
-  attachModelSelectorAction(action: ModelKeyActionPort): void {
-    this.#modelSelectorActions.set(action.id, action);
+  attachModelKeyAction(action: ModelKeyActionPort, settings: ModelKeySettings): void {
+    this.#modelKeyActions.set(action.id, {
+      action, settings, lastImage: "", pendingImage: null, rendering: false,
+    });
     this.#cancelShutdown();
     this.#ensureStarted();
-    this.#renderModelSelectorActions();
+    this.#renderModelKeyActions();
+    this.#hydrateVisibleTaskStatuses();
+    if (this.#models.length === 0) void this.refreshModelCatalog();
   }
 
-  detachModelSelectorAction(actionId: string): void {
-    this.#modelSelectorActions.delete(actionId);
+  updateModelKeySettings(action: ModelKeyActionPort, settings: ModelKeySettings): void {
+    const entry = this.#modelKeyActions.get(action.id);
+    if (entry === undefined) return this.attachModelKeyAction(action, settings);
+    entry.settings = settings;
+    this.#renderModelKeyActions();
+    void this.#sendModelPropertyInspector(action.id);
+  }
+
+  detachModelKeyAction(actionId: string): void {
+    this.#modelKeyActions.delete(actionId);
+    this.#modelInspectorConsumers.delete(actionId);
+    this.#hydrateVisibleTaskStatuses();
     this.#scheduleShutdownIfUnused();
   }
 
-  attachModelOptionAction(action: ModelKeyActionPort, selection: ModelSelection): void {
-    this.#modelOptionActions.set(action.id, { action, selection, lastImage: "" });
-    if (this.#modelSelectorTarget === null) {
-      this.#modelSelectorTarget = modelSelectorTarget(this.#options.desktopIpc.activeTaskId);
-    }
+  modelPropertyInspectorDidAppear(actionId: string): void {
+    this.#modelInspectorConsumers.add(actionId);
     this.#cancelShutdown();
     this.#ensureStarted();
-    this.#renderModelOptionActions();
+    void this.#sendModelPropertyInspector(actionId);
+    void this.refreshModelCatalog();
   }
 
-  detachModelOptionAction(actionId: string): void {
-    this.#modelOptionActions.delete(actionId);
-    if (this.#modelOptionActions.size === 0 && this.#fastModeActions.size === 0) {
-      this.#modelSelectorTarget = null;
-    }
+  modelPropertyInspectorDidDisappear(actionId: string): void {
+    this.#modelInspectorConsumers.delete(actionId);
     this.#scheduleShutdownIfUnused();
   }
 
@@ -346,96 +397,112 @@ export class FingertipRuntime {
         }),
       });
     }
-    if (this.#modelSelectorTarget === null) {
-      this.#modelSelectorTarget = modelSelectorTarget(this.#options.desktopIpc.activeTaskId);
-    }
     this.#cancelShutdown();
     this.#ensureStarted();
     this.#renderFastModeActions();
+    this.#hydrateVisibleTaskStatuses();
   }
 
   detachFastModeAction(actionId: string): void {
     this.#fastModeActions.get(actionId)?.animator.dispose();
     this.#fastModeActions.delete(actionId);
-    if (this.#modelOptionActions.size === 0 && this.#fastModeActions.size === 0) {
-      this.#modelSelectorTarget = null;
-    }
+    this.#hydrateVisibleTaskStatuses();
     this.#scheduleShutdownIfUnused();
   }
 
-  async prepareModelSelector(): Promise<boolean> {
-    this.#modelSelectorTarget = await this.#activateModelTarget();
-    this.#renderModelOptionActions();
-    this.#renderFastModeActions();
-    return this.#modelSelectorTarget !== null;
+  async pressModelKey(actionId: string): Promise<boolean> {
+    const generation = this.#generation;
+    const entry = this.#modelKeyActions.get(actionId);
+    if (entry === undefined || !entry.settings.model || this.#options.desktopIpc.state !== "online") return false;
+    const { model, effort } = entry.settings;
+    const taskId = this.#options.desktopIpc.activeTaskId;
+    if (taskId === null) return false;
+    if (this.#modelsRefreshedAt === null
+      || this.#options.now() - this.#modelsRefreshedAt >= MODEL_CATALOG_REFRESH_MS) {
+      await this.refreshModelCatalog();
+    }
+    if (this.#modelsRefreshedAt === null || this.#modelCatalogLoading || this.#modelCatalogError !== null || generation !== this.#generation
+      || this.#options.desktopIpc.state !== "online") return false;
+    const available = this.#models.find((candidate) => candidate.model === model);
+    if (available === undefined || (available.supportedReasoningEfforts.length > 0
+      ? !available.supportedReasoningEfforts.some((candidate) => candidate.reasoningEffort === effort)
+      : effort !== "")) return false;
+    if (this.#modelKeyActions.get(actionId) !== entry) return false;
+    // Capture this press's selection and target once; later UI changes belong to the next press.
+    return this.#options.desktopIpc.setModelSelection(taskId, { model, effort: effort || null });
   }
 
-  async pressModelSelection(selection: ModelSelection): Promise<boolean> {
-    const target = await this.#activateModelTarget();
-    this.#modelSelectorTarget = target;
-    this.#renderModelOptionActions();
-    this.#renderFastModeActions();
-    if (target === null) return false;
-    const succeeded = target.kind === "task"
-      ? await this.#options.desktopIpc.setModelSelection(target.taskId, selection)
-      : await this.#options.navigation.setComposerModelSelection(selection);
-    if (succeeded) {
-      const settings = Object.freeze({
-        model: selection.model,
-        effort: selection.effort,
-      });
-      if (target.kind === "task") this.#knownModelSettings.set(target.taskId, settings);
-      else this.#composerModelSettings = settings;
-      this.#renderModelOptionActions();
+  refreshModelCatalog(): Promise<void> {
+    this.#ensureStarted();
+    if (this.#modelCatalogRequest !== null) return this.#modelCatalogRequest;
+    const client = this.#catalogClient;
+    if (client === null || client.listModels === undefined || this.#catalogService === null) {
+      this.#modelCatalogLoading = client === null || this.#catalogService === null;
+      this.#modelCatalogError = this.#modelCatalogLoading ? null : "Model discovery is unavailable. Reconnect ChatGPT.";
+      void this.#sendVisibleModelPropertyInspectors();
+      return Promise.resolve();
     }
-    return succeeded;
+    if (this.#modelCatalogTimer !== null) this.#options.clearTimer(this.#modelCatalogTimer);
+    this.#modelCatalogTimer = null;
+    this.#modelCatalogLoading = true;
+    this.#modelCatalogError = null;
+    void this.#sendVisibleModelPropertyInspectors();
+    const generation = this.#generation;
+    const request = (async () => {
+      try {
+        const models = await discoverModels({ listModels: client.listModels!.bind(client) });
+        if (!this.#running || generation !== this.#generation || this.#catalogClient !== client) return;
+        this.#models = models;
+        this.#modelsRefreshedAt = this.#options.now();
+        this.#modelCatalogError = models.length === 0 ? "No models are available for this account." : null;
+      } catch {
+        if (!this.#running || generation !== this.#generation || this.#catalogClient !== client) return;
+        this.#modelCatalogError = "Could not load models. Reconnect ChatGPT or refresh the list.";
+      } finally {
+        if (generation === this.#generation && this.#catalogClient === client) {
+          this.#modelCatalogLoading = false;
+          this.#renderModelKeyActions();
+          await this.#sendVisibleModelPropertyInspectors();
+          this.#scheduleModelCatalogRefresh();
+        }
+      }
+    })();
+    this.#modelCatalogRequest = request;
+    void request.finally(() => {
+      if (this.#modelCatalogRequest === request) this.#modelCatalogRequest = null;
+    });
+    return request;
+  }
+
+  #scheduleModelCatalogRefresh(): void {
+    if (!this.#running || this.#modelCatalogTimer !== null
+      || (this.#modelKeyActions.size === 0 && this.#modelInspectorConsumers.size === 0)) return;
+    this.#modelCatalogTimer = this.#options.setTimer(() => {
+      this.#modelCatalogTimer = null;
+      void this.refreshModelCatalog();
+    }, MODEL_CATALOG_REFRESH_MS);
+  }
+
+  #clearModelCatalogRefresh(): void {
+    if (this.#modelCatalogTimer !== null) this.#options.clearTimer(this.#modelCatalogTimer);
+    this.#modelCatalogTimer = null;
+    this.#modelCatalogRequest = null;
+    this.#modelCatalogLoading = false;
+    this.#modelsRefreshedAt = null;
   }
 
   async pressFastMode(): Promise<boolean> {
-    const target = await this.#activateModelTarget();
-    this.#modelSelectorTarget = target;
-    this.#renderModelOptionActions();
-    this.#renderFastModeActions();
-    if (target === null || target.kind === "composer") return false;
-    const enabled = this.#knownServiceTiers.get(target.taskId) !== "priority";
-    const succeeded = await this.#options.desktopIpc.setFastMode(target.taskId, enabled);
+    const generation = this.#generation;
+    if (this.#options.desktopIpc.state !== "online") return false;
+    const taskId = this.#options.desktopIpc.activeTaskId;
+    if (taskId === null || generation !== this.#generation || this.#options.desktopIpc.state !== "online") return false;
+    const enabled = this.#knownServiceTiers.get(taskId) !== "priority";
+    const succeeded = await this.#options.desktopIpc.setFastMode(taskId, enabled);
     if (succeeded) {
-      this.#knownServiceTiers.set(target.taskId, enabled ? "priority" : null);
+      this.#knownServiceTiers.set(taskId, enabled ? "priority" : null);
       this.#renderFastModeActions();
     }
     return succeeded;
-  }
-
-  async #activateModelTarget(): Promise<ModelSelectorTarget | null> {
-    const waitsForPhysicalWindow = this.#options.navigation.windowTarget !== "last-active";
-    // Once the selector profile is open, its target is updated by the live
-    // onActiveTask listener. Preserve that snapshot for the last-active
-    // window instead of replacing a new Composer with a briefly stale Task ID
-    // while Codex is changing views.
-    const preparedTarget = this.#modelSelectorTarget;
-    let resolveActiveTask: ((taskId: TaskId | null) => void) | undefined;
-    const activeTask = new Promise<TaskId | null>((resolve) => { resolveActiveTask = resolve; });
-    const unsubscribe = waitsForPhysicalWindow
-      ? this.#options.desktopIpc.onActiveTask?.((taskId) => resolveActiveTask?.(taskId))
-      : undefined;
-    const activated = await this.#options.navigation.activateTargetWindow();
-    if (!activated) {
-      unsubscribe?.();
-      return null;
-    }
-    if (!waitsForPhysicalWindow) {
-      return preparedTarget ?? modelSelectorTarget(this.#options.desktopIpc.activeTaskId);
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const selectedTask = await Promise.race([
-      activeTask,
-      new Promise<TaskId | null>((resolve) => {
-        timer = this.#options.setTimer(() => resolve(this.#options.desktopIpc.activeTaskId), 350);
-      }),
-    ]);
-    if (timer !== undefined) this.#options.clearTimer(timer);
-    unsubscribe?.();
-    return modelSelectorTarget(selectedTask);
   }
 
   keyDown(actionId: string): void {
@@ -549,11 +616,13 @@ export class FingertipRuntime {
   #restartServices(clearCompatibility: boolean): void {
     const shouldRun = this.#running;
     this.#running = false;
+    this.#pendingDoneNotifications.clear();
     this.#chatGptNotRunning = false;
     this.#catalogAttempt = 0;
     this.#ipcAttempt = 0;
     this.#catalogRefreshGeneration = null;
     this.#catalogRefreshQueued = false;
+    this.#clearModelCatalogRefresh();
     if (clearCompatibility) this.#catalogCompatibility.clearFailures();
     if (this.#catalogTimer !== null) this.#options.clearTimer(this.#catalogTimer);
     if (this.#ipcTimer !== null) this.#options.clearTimer(this.#ipcTimer);
@@ -579,9 +648,7 @@ export class FingertipRuntime {
     this.#keyDownTaskIds.clear();
     this.#doubleTapTaskIds.clear();
     if (clearCompatibility) this.#options.desktopIpc.clearCompatibilityLatch();
-    const catalogStopped = this.#catalogClient?.stop() ?? Promise.resolve();
-    this.#catalogClient = null;
-    this.#catalogService = null;
+    const catalogStopped = this.#stopCatalogClient();
     this.#ongoingGoalByTaskId.clear();
     this.#generation += 1;
     this.#running = shouldRun;
@@ -594,8 +661,10 @@ export class FingertipRuntime {
 
   shutdown(): void {
     this.#running = false;
+    this.#pendingDoneNotifications.clear();
     this.#catalogRefreshGeneration = null;
     this.#catalogRefreshQueued = false;
+    this.#clearModelCatalogRefresh();
     this.#generation += 1;
     this.#cancelShutdown();
     if (this.#catalogTimer !== null) this.#options.clearTimer(this.#catalogTimer);
@@ -623,22 +692,19 @@ export class FingertipRuntime {
     for (const timer of this.#highlightExpiryTimers.values()) this.#options.clearTimer(timer);
     this.#highlightExpiryTimers.clear();
     this.#highlightedTaskIds.clear();
-    this.#catalogClient?.stop();
-    this.#catalogClient = null;
-    this.#catalogService = null;
+    void this.#stopCatalogClient();
     this.#ongoingGoalByTaskId.clear();
     this.#options.desktopIpc.stop();
     this.#stopWorkspaceMetadataWatch?.();
     this.#stopWorkspaceMetadataWatch = null;
     this.#registry.clear();
-    this.#modelSelectorActions.clear();
-    this.#modelOptionActions.clear();
+    this.#modelKeyActions.clear();
+    this.#modelInspectorConsumers.clear();
     for (const entry of this.#fastModeActions.values()) entry.animator.dispose();
     this.#fastModeActions.clear();
-    this.#knownModelSettings.clear();
     this.#knownServiceTiers.clear();
-    this.#modelSelectorTarget = null;
-    this.#composerModelSettings = null;
+    this.#models = [];
+    this.#modelCatalogError = null;
     this.#propertyInspectorConsumers.clear();
     this.#live.clear();
     this.#catalogView = Object.freeze({ state: "cold", feed: null });
@@ -796,8 +862,14 @@ export class FingertipRuntime {
   }
 
   async #startCatalog(generation: number): Promise<void> {
-    if (!this.#running || generation !== this.#generation) return;
+    // Metadata notifications may arrive while resolution or initialization is still awaiting.
+    if (!this.#running || generation !== this.#generation
+      || this.#catalogStartGeneration === generation || this.#catalogClient !== null) return;
+    this.#catalogStartGeneration = generation;
+    let client: CatalogClientLifecyclePort | null = null;
     try {
+      if (this.#catalogStopped !== null) await this.#catalogStopped;
+      if (!this.#running || generation !== this.#generation) return;
       const bundle = await this.#options.bundleResolver.resolve();
       if (!this.#running || generation !== this.#generation) return;
       this.#bundle = bundle;
@@ -809,21 +881,52 @@ export class FingertipRuntime {
         this.#scheduleCatalog(10_000, true);
         return;
       }
-      const client = this.#options.catalogClientFactory(bundle.binaryPath);
+      client = this.#options.catalogClientFactory(bundle.binaryPath);
       this.#catalogClient = client;
       await client.start();
       if (!this.#running || generation !== this.#generation) {
-        client.stop();
+        await this.#stopCatalogClient(client);
         return;
       }
       this.#catalogService = new TaskCatalogService(client, {
         readMetadata: this.#options.readWorkspaceMetadata,
       });
+      if (this.#modelKeyActions.size > 0 || this.#modelInspectorConsumers.size > 0) {
+        void this.refreshModelCatalog();
+      }
       await this.#refreshCatalog(generation);
     } catch (error) {
-      if (!this.#running || generation !== this.#generation) return;
-      await this.#handleCatalogFailure(error);
+      if (!this.#running || generation !== this.#generation) {
+        if (client !== null) await this.#stopCatalogClient(client);
+        return;
+      }
+      await this.#handleCatalogFailure(error, generation, client);
+    } finally {
+      if (this.#catalogStartGeneration === generation) this.#catalogStartGeneration = null;
     }
+  }
+
+  #stopCatalogClient(client = this.#catalogClient): Promise<void> {
+    if (client === null) return this.#catalogStopped ?? Promise.resolve();
+    if (this.#catalogClient === client) {
+      this.#clearModelCatalogRefresh();
+      this.#catalogClient = null;
+      this.#catalogService = null;
+      this.#modelCatalogError = "ChatGPT connection unavailable. Reconnecting…";
+      void this.#sendVisibleModelPropertyInspectors();
+    }
+    let stopped = this.#catalogClientStops.get(client);
+    if (stopped === undefined) {
+      stopped = client.stop().catch(() => undefined);
+      this.#catalogClientStops.set(client, stopped);
+      // Reconnects must wait for retired processes, including ones detached by a failure.
+      const retirement = Promise.all([this.#catalogStopped, stopped]).then(() => undefined);
+      this.#catalogStopped = retirement;
+      void retirement.then(() => {
+        if (this.#catalogStopped === retirement) this.#catalogStopped = null;
+      });
+    }
+    return this.#catalogStopped ?? stopped;
   }
 
   async #refreshCatalog(generation: number): Promise<void> {
@@ -848,7 +951,7 @@ export class FingertipRuntime {
     } catch (error) {
       if (!this.#running || generation !== this.#generation) return;
       this.#catalogView = service.view;
-      await this.#handleCatalogFailure(error);
+      await this.#handleCatalogFailure(error, generation, this.#catalogClient);
     } finally {
       if (this.#catalogRefreshGeneration === generation) {
         this.#catalogRefreshGeneration = null;
@@ -869,12 +972,16 @@ export class FingertipRuntime {
     this.#scheduleCatalog(100);
   }
 
-  async #handleCatalogFailure(error: unknown): Promise<void> {
+  async #handleCatalogFailure(
+    error: unknown,
+    generation: number,
+    client: CatalogClientLifecyclePort | null,
+  ): Promise<void> {
+    if (!this.#running || generation !== this.#generation || this.#catalogClient !== client) return;
     const signature = catalogCompatibilitySignature(error);
     const incompatible = signature !== null && this.#catalogCompatibility.recordFailure(signature);
-    await (this.#catalogClient?.stop() ?? Promise.resolve());
-    this.#catalogClient = null;
-    this.#catalogService = null;
+    await this.#stopCatalogClient(client);
+    if (!this.#running || generation !== this.#generation || this.#catalogClient !== null) return;
     this.#ongoingGoalByTaskId.clear();
     if (incompatible) {
       this.#catalogView = Object.freeze({ state: "incompatible", feed: this.#catalogView.feed });
@@ -898,6 +1005,7 @@ export class FingertipRuntime {
     const generation = this.#generation;
     this.#catalogRetryAt = newGeneration ? this.#options.now() + delayMs : null;
     this.#catalogTimer = this.#options.setTimer(() => {
+      if (!this.#running || generation !== this.#generation) return;
       this.#catalogTimer = null;
       this.#catalogRetryAt = null;
       if (this.#taskChangeRefreshing) {
@@ -962,47 +1070,68 @@ export class FingertipRuntime {
 
   #renderAll(): void {
     this.#registry.render((settings) => this.#snapshot(settings));
-    this.#renderModelSelectorActions();
-    this.#renderModelOptionActions();
+    this.#renderModelKeyActions();
     this.#renderFastModeActions();
+    void this.#sendVisibleModelPropertyInspectors();
     for (const entry of this.#registry.entries()) {
       void entry.queue.whenIdle().then(() => this.#sendPropertyInspector(entry.action.id));
     }
   }
 
-  #renderModelSelectorActions(): void {
-    const image = this.#desktopState === "online"
-      ? "imgs/actions/model-selector/key.png"
-      : "imgs/actions/model-selector/key-offline.png";
-    for (const action of this.#modelSelectorActions.values()) {
-      void action.setImage(image).catch(() => undefined);
+  #modelKeyImage(entry: ConfiguredModelKeyEntry): string {
+    const model = this.#models.find((candidate) => candidate.model === entry.settings.model);
+    const activeTaskId = this.#options.desktopIpc.activeTaskId;
+    const live = activeTaskId == null ? undefined : this.#live.get(activeTaskId);
+    const active = this.#reportedDesktopState === "online"
+      && this.#options.desktopIpc.state === "online"
+      && live?.freshness === "fresh"
+      && entry.settings.model !== ""
+      && live.facts.model === entry.settings.model
+      && live.facts.effort !== undefined
+      && (live.facts.effort ?? "") === entry.settings.effort;
+    return renderModelKeyDataUrl({
+      settings: entry.settings,
+      modelLabel: model?.displayName ?? entry.settings.model,
+      offline: this.#desktopState !== "online",
+      active,
+    });
+  }
+
+  #renderModelKeyActions(): void {
+    for (const entry of this.#modelKeyActions.values()) {
+      const image = this.#modelKeyImage(entry);
+      if (image === entry.lastImage && entry.pendingImage === null) continue;
+      entry.pendingImage = image;
+      if (!entry.rendering) void this.#flushModelKeyImage(entry);
     }
   }
 
-  #renderModelOptionActions(): void {
-    const target = this.#modelSelectorTarget;
-    const settings = target === null
-      ? null
-      : target.kind === "composer"
-        ? this.#composerModelSettings
-        : this.#knownModelSettings.get(target.taskId) ?? null;
-    for (const entry of this.#modelOptionActions.values()) {
-      const selected = settings !== null && modelSelectionMatches(entry.selection, settings);
-      const image = modelSelectionImagePath(entry.selection, selected);
-      if (image === entry.lastImage) continue;
-      entry.lastImage = image;
-      void entry.action.setImage(image).catch(() => { entry.lastImage = ""; });
+  async #flushModelKeyImage(entry: ConfiguredModelKeyEntry): Promise<void> {
+    entry.rendering = true;
+    try {
+      while (entry.pendingImage !== null && this.#modelKeyActions.get(entry.action.id) === entry) {
+        const image = entry.pendingImage;
+        entry.pendingImage = null;
+        try {
+          await entry.action.setImage(image);
+          entry.lastImage = image;
+        } catch {
+          entry.lastImage = "";
+          await entry.action.showAlert().catch(() => undefined);
+        }
+      }
+    } finally {
+      entry.rendering = false;
     }
   }
 
   #renderFastModeActions(): void {
-    const target = this.#modelSelectorTarget;
-    const taskId = target?.kind === "task" ? target.taskId : null;
+    const taskId = this.#options.desktopIpc.activeTaskId;
     let state: FastModeVisualState = "unknown";
     if (this.#desktopState === "online" && taskId !== null && this.#knownServiceTiers.has(taskId)) {
       state = this.#knownServiceTiers.get(taskId) === "priority" ? "fast" : "standard";
     }
-    const signature = JSON.stringify({ target, state, desktopState: this.#desktopState });
+    const signature = JSON.stringify({ taskId, state, desktopState: this.#desktopState });
     for (const entry of this.#fastModeActions.values()) {
       entry.animator.render({
         signature,
@@ -1024,20 +1153,25 @@ export class FingertipRuntime {
   }
 
   #hydrateVisibleTaskStatuses(): void {
+    this.#reconcileLiveExpiry();
     const feed = this.#catalogView.feed;
-    if (feed === null || this.#options.desktopIpc.state !== "online") return;
+    if (this.#options.desktopIpc.state !== "online") return;
     const taskIds = new Set<TaskId>();
+    const activeTaskId = this.#options.desktopIpc.activeTaskId;
+    if ((this.#modelKeyActions.size > 0 || this.#fastModeActions.size > 0) && activeTaskId != null) {
+      taskIds.add(activeTaskId);
+    }
     const entries = this.#registry.entries();
     const hydrationSources = this.#appearance.moveActiveUnreadThreadsToTop
       ? new Set(entries.map((entry) => entry.settings.taskSource))
       : new Set<TaskKeySettings["taskSource"]>();
     if (hydrationSources.size > 0) {
-      for (const task of feed) {
+      for (const task of feed ?? []) {
         if (hydrationSources.has(task.source)) taskIds.add(parseTaskId(task.id));
       }
     } else {
       for (const entry of entries) {
-        const task = this.#taskForSettings(entry.settings, feed);
+        const task = feed === null ? null : this.#taskForSettings(entry.settings, feed);
         if (task !== null) taskIds.add(parseTaskId(task.id));
       }
     }
@@ -1122,12 +1256,18 @@ export class FingertipRuntime {
     return this.#catalogView.feed?.some((task) => task.id === taskId) === true;
   }
 
+  #retainLiveRecord(taskId: string): boolean {
+    return this.#catalogHas(taskId)
+      || ((this.#modelKeyActions.size > 0 || this.#fastModeActions.size > 0)
+        && this.#options.desktopIpc.activeTaskId === taskId);
+  }
+
   #scheduleLiveExpiry(taskId: string): void {
     if (this.#liveExpiryTimers.has(taskId)) return;
     const generation = this.#generation;
     const timer = this.#options.setTimer(() => {
       this.#liveExpiryTimers.delete(taskId);
-      if (generation === this.#generation && !this.#catalogHas(taskId)) {
+      if (generation === this.#generation && !this.#retainLiveRecord(taskId)) {
         this.#live.delete(taskId);
         this.#renderAll();
       }
@@ -1137,7 +1277,7 @@ export class FingertipRuntime {
 
   #reconcileLiveExpiry(): void {
     for (const taskId of this.#live.keys()) {
-      if (this.#catalogHas(taskId)) {
+      if (this.#retainLiveRecord(taskId)) {
         const timer = this.#liveExpiryTimers.get(taskId);
         if (timer !== undefined) this.#options.clearTimer(timer);
         this.#liveExpiryTimers.delete(taskId);
@@ -1152,9 +1292,35 @@ export class FingertipRuntime {
     if (visible !== undefined) await this.#sendPropertyInspector(visible.action.id);
   }
 
+  async #sendVisibleModelPropertyInspectors(): Promise<void> {
+    for (const actionId of this.#modelInspectorConsumers) await this.#sendModelPropertyInspector(actionId);
+  }
+
+  async #sendModelPropertyInspector(actionId: string): Promise<void> {
+    const entry = this.#modelKeyActions.get(actionId);
+    if (entry === undefined || !this.#modelInspectorConsumers.has(actionId)) return;
+    await this.#options.propertyInspector.send({
+      type: "fingertip-model-state",
+      actionId,
+      models: this.#models.map((model) => ({ ...model,
+        supportedReasoningEfforts: model.supportedReasoningEfforts.map((effort) => ({ ...effort })),
+      })),
+      loading: this.#modelCatalogLoading,
+      error: this.#modelCatalogError,
+      preview: this.#modelKeyImage(entry),
+      activeThreadId: this.#options.desktopIpc.activeTaskId ?? null,
+    }).catch(() => undefined);
+  }
+
   async #sendPropertyInspector(actionId: string): Promise<void> {
     const entry = this.#registry.get(actionId);
     if (entry === null || !this.#propertyInspectorConsumers.has(actionId)) return;
+    const [doneCustomSound, confirmationCustomSound] = await Promise.all([
+      this.#options.notifier.customSoundAvailable("done"),
+      this.#options.notifier.customSoundAvailable("confirmation"),
+    ]);
+    if (this.#registry.get(actionId) !== entry || !this.#propertyInspectorConsumers.has(actionId)) return;
+    // Read the current state after asynchronous sound checks so older sends cannot restore stale diagnostics.
     const snapshot = entry.queue.displayedSnapshot ?? this.#snapshot(entry.settings);
     const code = selectDiagnosticCode({
       imageUpdateFailed: entry.queue.imageUpdateFailed,
@@ -1169,10 +1335,6 @@ export class FingertipRuntime {
       (this.#catalogRetryAt ?? 0) - this.#options.now(),
       (this.#ipcRetryAt ?? 0) - this.#options.now(),
     ) / 1_000);
-    const [doneCustomSound, confirmationCustomSound] = await Promise.all([
-      this.#options.notifier.customSoundAvailable("done"),
-      this.#options.notifier.customSoundAvailable("confirmation"),
-    ]);
     await this.#options.propertyInspector.send({
       type: "fingertip-state",
       preview: renderSnapshotDataUrl(snapshot),
@@ -1193,7 +1355,7 @@ export class FingertipRuntime {
 
   #scheduleShutdownIfUnused(): void {
     if (this.#registry.size !== 0 || this.#propertyInspectorConsumers.size !== 0
-      || this.#modelSelectorActions.size !== 0 || this.#modelOptionActions.size !== 0
+      || this.#modelKeyActions.size !== 0 || this.#modelInspectorConsumers.size !== 0
       || this.#fastModeActions.size !== 0
       || this.#shutdownTimer !== null) return;
     this.#shutdownTimer = this.#options.setTimer(() => this.shutdown(), 30_000);

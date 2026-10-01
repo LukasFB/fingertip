@@ -66,9 +66,9 @@ function boundedValue(value: string): string {
 }
 
 function parseBundlePath(output: string): string | null {
-  const quoted = /LSBundlePath["']?\s*[=:]\s*["']([^"']+)["']/u.exec(output)?.[1];
+  const quoted = /(?:LSBundlePath|bundle path)["']?\s*[=:]\s*["']([^"']+)["']/u.exec(output)?.[1];
   if (quoted !== undefined) return quoted;
-  const plain = /LSBundlePath["']?\s*[=:]\s*([^\r\n]+)/u.exec(output)?.[1]?.trim();
+  const plain = /(?:LSBundlePath|bundle path)["']?\s*[=:]\s*([^\r\n]+)/u.exec(output)?.[1]?.trim();
   return plain === undefined || plain.length === 0 ? null : plain;
 }
 
@@ -101,8 +101,10 @@ export class ChatGptBundleResolver {
       // A missing running instance is an expected discovery result.
     }
     ordered.push("/Applications/ChatGPT.app");
+    ordered.push("/Applications/Codex.app");
     if (this.#options.homeDirectory.length > 0) {
       ordered.push(path.join(this.#options.homeDirectory, "Applications", "ChatGPT.app"));
+      ordered.push(path.join(this.#options.homeDirectory, "Applications", "Codex.app"));
     }
     try {
       const spotlight = await this.#options.run(
@@ -144,15 +146,28 @@ export class ChatGptBundleResolver {
     }
     const appVersion = await readPlistValue("CFBundleShortVersionString");
     const appBuild = await readPlistValue("CFBundleVersion");
-    const binaryPath = path.join(bundlePath, "Contents", "Resources", "codex");
-    const binaryStat = await stat(binaryPath);
-    if (!binaryStat.isFile() || binaryStat.uid !== process.getuid?.()) throw new Error("invalid Codex binary owner");
-    await access(binaryPath, constants.X_OK);
-    const codexVersion = boundedValue(await this.#options.run(
-      binaryPath,
-      ["--version"],
-      { timeoutMs: 5_000, outputCapBytes: 4_096 },
-    ));
+    // Current ChatGPT bundles ship the signed CLI in its own nested app.
+    // Resolve it inside the running bundle before considering older installs.
+    let executable: { binaryPath: string; codexVersion: string } | null = null;
+    for (const relativePath of ["codex-cli/CodexCLI.app/Contents/MacOS/codex", "codex-cli/bin/codex", "codex"]) {
+      const binaryPath = path.join(bundlePath, "Contents", "Resources", relativePath);
+      try {
+        const binaryStat = await stat(binaryPath);
+        if (!binaryStat.isFile() || binaryStat.uid !== process.getuid?.()) continue;
+        await access(binaryPath, constants.X_OK);
+        const codexVersion = boundedValue(await this.#options.run(
+          binaryPath,
+          ["--version"],
+          { timeoutMs: 5_000, outputCapBytes: 4_096 },
+        ));
+        executable = { binaryPath, codexVersion };
+        break;
+      } catch {
+        // Older bundles retain the original Resources/codex layout.
+      }
+    }
+    if (executable === null) throw new Error("Codex binary not found");
+    const { binaryPath, codexVersion } = executable;
     return Object.freeze({
       bundlePath,
       binaryPath,

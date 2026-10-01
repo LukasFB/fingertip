@@ -4,7 +4,6 @@ import test from "node:test";
 
 import { ChatGptNavigationPort, type SpawnProcess } from "../../src/chatgpt/chatgpt-navigation-port.ts";
 import { parseTaskId } from "../../src/catalog/catalog-projection.ts";
-import { modelSelection } from "../../src/models/model-selection.ts";
 
 class FakeChild extends EventEmitter {
   killed = false;
@@ -137,7 +136,7 @@ test("navigation skips physical window selection when ChatGPT has only one stand
   assert.ok(singleWindowFastPath < physicalSelection);
 });
 
-test("composer activation reuses the same last-active, leftmost and rightmost window target", async () => {
+test("window activation reuses the same last-active, leftmost and rightmost window target", async () => {
   for (const target of ["last-active", "leftmost", "rightmost"] as const) {
     const calls: unknown[][] = [];
     const spawn: SpawnProcess = (command, args, options) => {
@@ -166,50 +165,6 @@ test("composer activation reuses the same last-active, leftmost and rightmost wi
         : "candidateX > targetX", "u"));
     }
   }
-});
-
-test("composer model selection uses portable slash commands and absolute menu positions", async () => {
-  const calls: unknown[][] = [];
-  const spawn: SpawnProcess = (command, args, options) => {
-    calls.push([command, args, options]);
-    const child = new FakeChild();
-    queueMicrotask(() => child.emit("exit", 0, null));
-    return child;
-  };
-  const port = new ChatGptNavigationPort({ spawn });
-
-  assert.equal(await port.setComposerModelSelection(modelSelection("luna", "max")), true);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.[0], "/usr/bin/osascript");
-  const script = (calls[0]?.[1] as readonly string[] | undefined)?.[1] ?? "";
-  assert.match(script, /keystroke " \/model"\s+delay 0\.16\s+key code 36\s+delay 0\.18\s+key code 126/u);
-  assert.match(script, /key code 126\s+key code 125\s+key code 125\s+key code 125\s+key code 125\s+key code 36\s+delay 0\.16/u);
-  assert.match(script, /keystroke "\/reasoning"\s+delay 0\.16\s+key code 36\s+delay 0\.18\s+key code 126/u);
-  assert.match(script, /key code 126\s+key code 125\s+key code 125\s+key code 125\s+key code 125\s+key code 36/u);
-  assert.match(script, /key code 36\s+delay 0\.08\s+key code 51/u);
-  assert.doesNotMatch(script, /control down|shift down/u);
-  assert.doesNotMatch(script, /option down/u);
-  assert.doesNotMatch(script, /key code 53/u);
-});
-
-test("composer model selection keeps Astra and Light at the first menu entries", async () => {
-  const calls: unknown[][] = [];
-  const spawn: SpawnProcess = (command, args, options) => {
-    calls.push([command, args, options]);
-    const child = new FakeChild();
-    queueMicrotask(() => child.emit("exit", 0, null));
-    return child;
-  };
-  const port = new ChatGptNavigationPort({ spawn });
-
-  assert.equal(await port.setComposerModelSelection(modelSelection("astra", "low")), true);
-  const script = (calls[0]?.[1] as readonly string[] | undefined)?.[1] ?? "";
-  assert.match(script, /keystroke " \/model"/u);
-  assert.match(script, /keystroke "\/reasoning"/u);
-  assert.equal(script.split("\n").filter((line) => line.trim() === "key code 125").length, 1);
-  assert.equal(script.split("\n").filter((line) => line.trim() === "key code 126").length, 14);
-  assert.doesNotMatch(script, /key code 115/u);
-  assert.equal(script.split("\n").filter((line) => line.trim() === "key code 51").length, 1);
 });
 
 test("navigation falls back to ChatGPT's last active window when physical window focusing fails", async () => {
