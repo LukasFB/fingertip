@@ -167,6 +167,7 @@ export class ChatGptDesktopIpcAdapter {
   readonly #catalogHintListeners = new Set<Listener<TaskId>>();
   readonly #activeTaskListeners = new Set<Listener<TaskId | null>>();
   readonly #owners = new Map<TaskId, OwnerState>();
+  readonly #pendingReadStates = new Map<TaskId, boolean>();
   readonly #tasksWithRunnableQueuedFollowUps = new Set<TaskId>();
   readonly #queuedFollowUpCountByTaskId = new Map<TaskId, number>();
   readonly #queuedFollowUpHandoffs = new Set<TaskId>();
@@ -196,6 +197,8 @@ export class ChatGptDesktopIpcAdapter {
   #threadSettingsRequestVersion: 1 | 2 = 2;
   #readStateVersion: 1 | 2 | 3 = 3;
   #readStateContext: ReadStateContext | null = null;
+  #persistedReadStateTokens: ReadonlyMap<TaskId, string> | null = null;
+  readonly #readStateRefreshByTask = new Map<TaskId, Readonly<{ ownerClientId: string; revision: number }>>();
 
   constructor(options?: Partial<DesktopIpcAdapterOptions>) {
     this.#options = {
@@ -258,6 +261,31 @@ export class ChatGptDesktopIpcAdapter {
     this.#catalogTaskIds = new Set(taskIds);
   }
 
+  reconcilePersistedReadState(tokens: ReadonlyMap<TaskId, string>): void {
+    if (this.#state !== "online") return;
+    const previous = this.#persistedReadStateTokens;
+    this.#persistedReadStateTokens = new Map(tokens);
+    for (const taskId of this.#followedTaskIds) {
+      const current = this.#owners.get(taskId);
+      if (current === undefined) continue;
+      const refreshed = this.#readStateRefreshByTask.get(taskId);
+      const uncheckedCompletion = current.record.status === "done"
+        && (refreshed?.ownerClientId !== current.ownerClientId || refreshed.revision !== current.revision);
+      if (previous !== null && previous.get(taskId) === tokens.get(taskId) && !uncheckedCompletion) continue;
+      // The durable read-state service can update without an IPC broadcast.
+      // A visible thread can also be read immediately: the persisted list stays
+      // unchanged, and the owner's local clear explicitly suppresses patches.
+      // Check each new done revision once during the regular metadata refresh.
+      // Only the owner snapshot decides read state; token absence is not proof.
+      this.#readStateRefreshByTask.set(taskId, {
+        ownerClientId: current.ownerClientId, revision: current.revision,
+      });
+      this.#pendingReadStates.delete(taskId);
+      this.#hydrationsInFlight.add(taskId);
+      this.#announceFollowing(taskId, true);
+    }
+  }
+
   getRecord(taskId: TaskId): LiveTaskRecord | null {
     return this.#owners.get(taskId)?.record ?? null;
   }
@@ -297,6 +325,7 @@ export class ChatGptDesktopIpcAdapter {
         },
       });
       const current = this.#owners.get(taskId);
+      if (current === undefined) this.#rememberPendingReadState(taskId, true);
       if (current !== undefined) {
         const projection = applyStatusPatches(current.projection, [{
           op: "replace",
@@ -327,6 +356,7 @@ export class ChatGptDesktopIpcAdapter {
       if (desiredTaskIds.has(taskId)) continue;
       this.#announceFollowing(taskId, false);
       this.#followedTaskIds.delete(taskId);
+      this.#readStateRefreshByTask.delete(taskId);
       this.#hydrationsInFlight.delete(taskId);
     }
     for (const taskId of desiredTaskIds) {
@@ -494,6 +524,9 @@ export class ChatGptDesktopIpcAdapter {
   stop(): void {
     this.#stopping = true;
     this.#readStateContext = null;
+    this.#pendingReadStates.clear();
+    this.#persistedReadStateTokens = null;
+    this.#readStateRefreshByTask.clear();
     this.#connectionGeneration += 1;
     this.#clearHandshakeTimer();
     this.#socket?.destroy();
@@ -736,13 +769,18 @@ export class ChatGptDesktopIpcAdapter {
     if (change.type === "snapshot") {
       const revision = nonNegativeInteger(change.revision);
       if (current?.ownerClientId === ownerClientId && revision < current.revision) return;
-      const projection = projectStatusSnapshot(change.conversationState);
+      let projection = projectStatusSnapshot(change.conversationState);
+      // A read event may arrive while the first owner snapshot is in flight.
+      const readState = this.#pendingReadStates.get(taskId);
+      this.#pendingReadStates.delete(taskId);
+      if (readState !== undefined) projection = Object.freeze({ ...projection, hasUnreadTurn: readState });
+      this.#hydrationsInFlight.delete(taskId);
       this.#observeSettingsReadback(taskId, ownerClientId, projection);
-      if (current?.ownerClientId === ownerClientId && revision === current.revision) {
+      if (current?.ownerClientId === ownerClientId && revision === current.revision
+        && current.record.freshness === "fresh" && projection.hasUnreadTurn === current.projection.hasUnreadTurn) {
         this.#confirmModelSelectionRequests(taskId);
         return;
       }
-      this.#hydrationsInFlight.delete(taskId);
       this.#publish(taskId, ownerClientId, revision, projection);
       this.#schemaFailureCount = 0;
       this.#lastSchemaFailureSignature = "";
@@ -803,15 +841,25 @@ export class ChatGptDesktopIpcAdapter {
       if (params.hostId !== "local") return;
       const context = parseReadStateContext(params.context);
       if (context === null) return;
+      if (this.#readStateContext !== null
+        && JSON.stringify(this.#readStateContext) !== JSON.stringify(context)) {
+        this.#pendingReadStates.clear();
+        this.#persistedReadStateTokens = null;
+        this.#readStateRefreshByTask.clear();
+      }
       this.#readStateContext = context;
       this.#readStateVersion = 3;
     } else if (this.#readStateContext === null && !this.#isCurrentReadStateProtocol()) {
       this.#readStateVersion = message.version as 1 | 2;
     }
     const taskId = parseTaskId(params.conversationId);
-    if (!this.#catalogTaskIds.has(taskId)) return;
+    // Retain events that arrive before catalog discovery or owner hydration.
+    // Bound the cache without retaining conversation contents.
     const current = this.#owners.get(taskId);
-    if (current === undefined) return;
+    if (current === undefined) {
+      this.#rememberPendingReadState(taskId, params.hasUnreadTurn);
+      return;
+    }
     const projection = applyStatusPatches(current.projection, [{
       op: "replace",
       path: ["hasUnreadTurn"],
@@ -820,6 +868,15 @@ export class ChatGptDesktopIpcAdapter {
     this.#publish(taskId, current.ownerClientId, current.revision, projection);
     this.#schemaFailureCount = 0;
     this.#lastSchemaFailureSignature = "";
+  }
+
+  #rememberPendingReadState(taskId: TaskId, hasUnreadTurn: boolean): void {
+    this.#pendingReadStates.delete(taskId);
+    this.#pendingReadStates.set(taskId, hasUnreadTurn);
+    if (this.#pendingReadStates.size > 2_000) {
+      const oldest = this.#pendingReadStates.keys().next().value;
+      if (oldest !== undefined) this.#pendingReadStates.delete(oldest);
+    }
   }
 
   #handleQueuedFollowUps(message: Readonly<Record<string, unknown>>): void {
@@ -946,6 +1003,9 @@ export class ChatGptDesktopIpcAdapter {
     this.#threadSettingsRequestVersion = version.startsWith("26.707.") ? 1 : 2;
     this.#readStateVersion = version.startsWith("26.707.") ? 1 : version.startsWith("26.715.") ? 2 : 3;
     this.#readStateContext = null;
+    this.#pendingReadStates.clear();
+    this.#persistedReadStateTokens = null;
+    this.#readStateRefreshByTask.clear();
   }
 
   #write(message: Readonly<Record<string, unknown>>): void {
@@ -966,6 +1026,9 @@ export class ChatGptDesktopIpcAdapter {
 
   #latchIncompatible(): void {
     this.#readStateContext = null;
+    this.#pendingReadStates.clear();
+    this.#persistedReadStateTokens = null;
+    this.#readStateRefreshByTask.clear();
     this.#incompatibleLatched = true;
     this.#setState("incompatible");
     this.#clearOwnerHandoffTimers();
@@ -985,6 +1048,9 @@ export class ChatGptDesktopIpcAdapter {
   #failConnection(reason: "transport" | "handshake" | "schema", signature = ""): void {
     if (this.#stopping || this.#state === "incompatible") return;
     this.#readStateContext = null;
+    this.#pendingReadStates.clear();
+    this.#persistedReadStateTokens = null;
+    this.#readStateRefreshByTask.clear();
     if (reason === "schema") {
       if (signature === this.#lastSchemaFailureSignature) this.#schemaFailureCount += 1;
       else {

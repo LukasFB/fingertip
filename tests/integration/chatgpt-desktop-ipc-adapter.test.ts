@@ -1071,3 +1071,160 @@ test("desktop IPC performs the exact handshake and publishes only sanitized owne
   adapter.clearCompatibilityLatch();
   assert.equal(adapter.state, "offline");
 });
+
+test("read events before hydration survive the in-flight initial snapshot", async (context) => {
+  const { adapter, send } = await settingsFixture(context, () => {});
+  const readContext = {
+    identity: { kind: "chatgpt", accountId: "account", userId: "user" },
+    executionHostKey: "local-host",
+  };
+  send({
+    type: "broadcast", method: "thread-read-state-changed", version: 3,
+    params: { conversationId: settingsTaskId, hostId: "local", hasUnreadTurn: false, context: readContext },
+  });
+  const staleSnapshot = (revision: number, owner = "settings-owner") => ({
+    ...settingsSnapshot({}, revision, owner),
+    params: {
+      hostId: "local", conversationId: settingsTaskId,
+      change: { type: "snapshot", revision, conversationState: {
+        threadRuntimeStatus: { type: "idle" }, hasUnreadTurn: true, requests: [],
+      } },
+    },
+  });
+  let published = waitForRecord(adapter);
+  send(staleSnapshot(1));
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "idle");
+  adapter.setCatalogTaskIds(new Set([settingsTaskId]));
+  published = waitForRecord(adapter);
+  send(settingsSnapshot({}, 2, "replacement-owner"));
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "idle");
+  // A new completion must still be able to mark the thread unread.
+  published = waitForRecord(adapter);
+  send({
+    type: "broadcast", method: "thread-stream-state-changed", version: 11, sourceClientId: "replacement-owner",
+    params: { hostId: "local", conversationId: settingsTaskId, change: {
+      type: "patches", baseRevision: 2, revision: 3,
+      patches: [{ op: "replace", path: ["hasUnreadTurn"], value: true }],
+    } },
+  });
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "done");
+});
+
+test("read events update an owned thread even outside the current catalog", async (context) => {
+  const { adapter, send } = await settingsFixture(context, () => {});
+  let published = waitForRecord(adapter);
+  send(settingsSnapshot({}));
+  await published;
+  published = waitForRecord(adapter);
+  send({
+    type: "broadcast", method: "thread-read-state-changed", version: 2,
+    params: { conversationId: settingsTaskId, hostId: "local", hasUnreadTurn: true },
+  });
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "done");
+});
+
+test("persisted read changes recover a missed broadcast using a same-revision snapshot without reconnecting", async (context) => {
+  const { adapter, send, messages, connectionCount } = await settingsFixture(context, () => {});
+  await adapter.hydrateTaskIds([settingsTaskId]);
+  adapter.reconcilePersistedReadState(new Map([[settingsTaskId, "unread-scope-token"]]));
+  const snapshot = (unread: boolean) => ({
+    ...settingsSnapshot({}),
+    params: { hostId: "local", conversationId: settingsTaskId, change: {
+      type: "snapshot", revision: 1,
+      conversationState: { threadRuntimeStatus: { type: "idle" }, hasUnreadTurn: unread, requests: [] },
+    } },
+  });
+  let published = waitForRecord(adapter);
+  send(snapshot(true));
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "done");
+  const follows = () => messages.filter((message) => message.method === "thread-stream-following-changed").length;
+  const before = follows();
+  // The desktop writes its durable store but emits no read-state broadcast.
+  adapter.reconcilePersistedReadState(new Map());
+  await withTimeout(new Promise<void>((resolve) => {
+    const check = () => { if (follows() > before) resolve(); else setTimeout(check, 5); };
+    check();
+  }), () => "read-state invalidation did not request a snapshot");
+  published = waitForRecord(adapter);
+  send(snapshot(false));
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "idle");
+  assert.equal(connectionCount(), 1);
+  const after = follows();
+  adapter.reconcilePersistedReadState(new Map());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(follows(), after, "unchanged metadata must not repeatedly fetch conversation snapshots");
+});
+
+test("a completion read immediately in the app is reconciled even when persisted read tokens never change", async (context) => {
+  const { adapter, send, messages, connectionCount } = await settingsFixture(context, () => {});
+  await adapter.hydrateTaskIds([settingsTaskId]);
+  const follows = () => messages.filter((message) => message.method === "thread-stream-following-changed").length;
+  while (follows() === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+  adapter.reconcilePersistedReadState(new Map());
+  let published = waitForRecord(adapter);
+  send(settingsSnapshot({}));
+  await published;
+  published = waitForRecord(adapter);
+  send({
+    type: "broadcast", method: "thread-stream-state-changed", version: 11, sourceClientId: "settings-owner",
+    params: { hostId: "local", conversationId: settingsTaskId, change: {
+      type: "patches", baseRevision: 1, revision: 2,
+      patches: [{ op: "replace", path: ["hasUnreadTurn"], value: true }],
+    } },
+  });
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "done");
+  // The visible app clears its local flag without broadcasting patches, and
+  // the durable list stays empty throughout. No token transition can help us.
+  const before = follows();
+  adapter.reconcilePersistedReadState(new Map());
+  await withTimeout(new Promise<void>((resolve) => {
+    const check = () => { if (follows() > before) resolve(); else setTimeout(check, 5).unref(); };
+    check();
+  }), () => "completion with unchanged read tokens did not request a snapshot");
+  published = waitForRecord(adapter);
+  send(settingsSnapshot({}, 2));
+  await published;
+  assert.equal(adapter.getRecord(settingsTaskId)?.status, "idle");
+  assert.equal(connectionCount(), 1);
+});
+
+test("completion readback preserves genuinely unread threads and is bounded per owner revision", async (context) => {
+  const { adapter, send, messages } = await settingsFixture(context, () => {});
+  await adapter.hydrateTaskIds([settingsTaskId]);
+  const follows = () => messages.filter((message) => message.method === "thread-stream-following-changed").length;
+  while (follows() === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+  const tokens = new Map([[settingsTaskId, "unread-scope-token"]]);
+  adapter.reconcilePersistedReadState(tokens);
+  const snapshot = (revision: number, owner = "settings-owner") => ({
+    ...settingsSnapshot({}, revision, owner),
+    params: { hostId: "local", conversationId: settingsTaskId, change: {
+      type: "snapshot", revision,
+      conversationState: { threadRuntimeStatus: { type: "idle" }, hasUnreadTurn: true, requests: [] },
+    } },
+  });
+  for (const [revision, owner] of [[1, "settings-owner"], [2, "settings-owner"], [1, "replacement-owner"]] as const) {
+    const published = waitForRecord(adapter);
+    send(snapshot(revision, owner));
+    await published;
+    const before = follows();
+    adapter.reconcilePersistedReadState(tokens);
+    await withTimeout(new Promise<void>((resolve) => {
+      const check = () => { if (follows() > before) resolve(); else setTimeout(check, 5).unref(); };
+      check();
+    }), () => "new completion revision did not request readback");
+    send(snapshot(revision, owner));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    adapter.reconcilePersistedReadState(tokens);
+    adapter.reconcilePersistedReadState(tokens);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(adapter.getRecord(settingsTaskId)?.status, "done");
+    assert.equal(follows(), before + 1, "same-revision readback must not create a refresh loop");
+  }
+});

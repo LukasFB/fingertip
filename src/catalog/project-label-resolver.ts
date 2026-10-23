@@ -3,6 +3,7 @@ import path from "node:path";
 import { parseTaskId, type TaskId } from "./catalog-projection.ts";
 
 export interface WorkspaceMetadata {
+  readonly readStateTokens?: ReadonlyMap<TaskId, string>;
   readonly projectlessTaskIds: ReadonlySet<TaskId>;
   readonly taskRootHints: ReadonlyMap<TaskId, string>;
   readonly taskProjectRoots: ReadonlyMap<TaskId, string>;

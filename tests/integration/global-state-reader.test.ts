@@ -23,12 +23,16 @@ test("global-state reader opens a UID-owned regular file and projects only allow
         { text: "must-not-survive-either" },
       ],
     },
+    "electron-thread-read-state-v1": {
+      version: 1, unreadByIdentity: { account: { local: ["00000000-0000-4000-8000-000000000001"] } },
+    },
     secret: "must-not-survive",
   }));
 
   const metadata = await readWorkspaceMetadata(statePath);
 
   assert.equal(metadata.projectlessTaskIds.size, 1);
+  assert.match(metadata.readStateTokens?.get(parseTaskId("00000000-0000-4000-8000-000000000001")) ?? "", /^[a-f0-9]{64}$/u);
   assert.deepEqual(metadata.savedRoots, ["/Users/test/Project"]);
   assert.equal(metadata.queuedFollowUpCounts.get(parseTaskId("00000000-0000-4000-8000-000000000001")), 2);
   assert.equal(JSON.stringify(metadata).includes("secret"), false);

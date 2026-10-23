@@ -889,7 +889,13 @@ export class FingertipRuntime {
         return;
       }
       this.#catalogService = new TaskCatalogService(client, {
-        readMetadata: this.#options.readWorkspaceMetadata,
+        readMetadata: async () => {
+          const metadata = await this.#options.readWorkspaceMetadata();
+          if (this.#running && generation === this.#generation && metadata.readStateTokens !== undefined) {
+            this.#options.desktopIpc.reconcilePersistedReadState(metadata.readStateTokens);
+          }
+          return metadata;
+        },
       });
       if (this.#modelKeyActions.size > 0 || this.#modelInspectorConsumers.size > 0) {
         void this.refreshModelCatalog();

@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 
+import { projectReadStateTokens } from "./read-state-invalidation.ts";
 import { projectWorkspaceMetadata, type WorkspaceMetadata } from "./project-label-resolver.ts";
 
 // ChatGPT stores auxiliary UI state and queued follow-up contents alongside the
@@ -67,7 +68,11 @@ export function readWorkspaceMetadata(
   filePath: string,
   options?: Partial<GlobalStateReaderOptions>,
 ): Promise<WorkspaceMetadata> {
-  return readGlobalStateProjection(filePath, projectWorkspaceMetadata, options);
+  return readGlobalStateProjection(filePath, (value) => {
+    const metadata = projectWorkspaceMetadata(value);
+    const readStateTokens = projectReadStateTokens(value);
+    return readStateTokens === undefined ? metadata : Object.freeze({ ...metadata, readStateTokens });
+  }, options);
 }
 
 export function readPersistedStringAtom(

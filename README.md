@@ -142,6 +142,19 @@ Until this connection observes a local read-state event, marking a task unread
 is unavailable; the plugin does not guess that context. Model changes are
 independent of this restriction.
 
+Read-state recovery also observes `electron-thread-read-state-v1` through the
+existing global-state watcher and catalog refresh. In ChatGPT/Codex
+26.1016.51333, a read/unread change can persist without a desktop IPC broadcast,
+and a fresh owner snapshot can contain the new flag at the same stream revision.
+Fingertip therefore uses per-thread, account/host-sensitive change tokens only to
+request a fresh snapshot for affected subscriptions, and accepts updated read
+state at an unchanged revision. Persisted lists are never used directly as the
+active account's read state. A thread read immediately while open can leave the
+persisted list unchanged and clear its owner state without broadcasting patches.
+The regular catalog refresh therefore also checks each new Done owner/revision
+once. A same-revision snapshot settles the key back to Idle if already read;
+genuinely unread threads stay Done without repeatedly fetching their snapshots.
+
 ## Version 1.1.2
 
 - Replaced the bundled Model Selector with configurable Codex Model keys. Models and supported thinking levels are discovered dynamically from the installed app.
