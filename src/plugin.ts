@@ -7,20 +7,24 @@ import { ModelKeyAction } from "./actions/model-key-action.ts";
 import { TaskKeyAction } from "./actions/task-key-action.ts";
 import { MacTaskNotifier } from "./notifications/mac-task-notifier.ts";
 import { lockProductionLogLevel } from "./production-logging.ts";
+import { RuntimeRouter } from "./runtime/runtime-router.ts";
 import { FingertipRuntime } from "./runtime/fingertip-runtime.ts";
 import { AppearanceSettingsController } from "./settings/appearance-settings-controller.ts";
 import type { TaskKeyAppearanceSettings } from "./settings/task-key-settings.ts";
 
 lockProductionLogLevel(streamDeck.logger);
 
-const runtime = new FingertipRuntime({
+const notifier = new MacTaskNotifier({
+  audioHelperPath: fileURLToPath(new URL("./audio-notifier", import.meta.url)),
+});
+const codex = new FingertipRuntime({
   propertyInspector: {
     send: (payload) => streamDeck.ui.sendToPropertyInspector(payload),
   },
-  notifier: new MacTaskNotifier({
-    audioHelperPath: fileURLToPath(new URL("./audio-notifier", import.meta.url)),
-  }),
+  notifier,
 });
+
+const runtime = new RuntimeRouter(codex, (payload) => streamDeck.ui.sendToPropertyInspector(payload), notifier);
 
 const appearance = new AppearanceSettingsController({
   apply: (settings) => runtime.updateAppearance(settings),

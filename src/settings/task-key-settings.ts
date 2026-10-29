@@ -20,6 +20,7 @@ const LEGACY_CONFIRMATION_COLOR = "#ff7373";
 
 export interface TaskKeySettings extends JsonObject {
   readonly version: 9;
+  readonly backend?: "t3" | "codex";
   readonly taskPosition: number;
   readonly taskSource: TaskKeySource;
   readonly moveActiveUnreadThreadsToTop: boolean;
@@ -144,6 +145,7 @@ export function normalizeTaskKeySettings(value: unknown): TaskKeySettings {
   const record = isRecord(value) ? value : {};
   return Object.freeze({
     version: 9,
+    ...(record.backend === "t3" ? { backend: "t3" as const } : {}),
     taskPosition: integerInRange(record.taskPosition, 1, 99, 1),
     taskSource: taskSource(record.taskSource),
     moveActiveUnreadThreadsToTop: record.moveActiveUnreadThreadsToTop === true
@@ -230,11 +232,12 @@ export function legacyTaskKeyBadgeAppearance(value: unknown): TaskKeyBadgeAppear
 }
 
 export function taskKeySettingsNeedWriteback(value: unknown): boolean {
-  if (!isRecord(value) || Object.keys(value).length !== 4) {
+  if (!isRecord(value) || Object.keys(value).length !== (value.backend === "t3" ? 5 : 4)) {
     return true;
   }
   const normalized = normalizeTaskKeySettings(value);
-  return value.version !== normalized.version
+  return value.backend !== normalized.backend
+    || value.version !== normalized.version
     || value.taskPosition !== normalized.taskPosition
     || value.taskSource !== normalized.taskSource
     || value.moveActiveUnreadThreadsToTop !== normalized.moveActiveUnreadThreadsToTop;

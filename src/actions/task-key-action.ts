@@ -19,6 +19,8 @@ import {
   type TaskNotificationStatus,
 } from "../settings/task-key-settings.ts";
 
+type TaskRuntime = Pick<FingertipRuntime, "normalizeSettings" | "attachAction" | "detachAction" | "updateSettings" | "keyDown" | "keyUp" | "propertyInspectorDidAppear" | "propertyInspectorDidDisappear" | "retryNow" | "importCustomSound" | "previewSound"> & { pairT3?(link: string, serverAddress?: string): void };
+
 type PersistedTaskKeySettings = JsonObject & Partial<TaskKeySettings>;
 
 function command(value: JsonValue): { name: string; status?: TaskNotificationStatus } | null {
@@ -39,6 +41,7 @@ function command(value: JsonValue): { name: string; status?: TaskNotificationSta
 function persisted(settings: TaskKeySettings): PersistedTaskKeySettings {
   return {
     version: settings.version,
+    ...(settings.backend === "t3" ? { backend: "t3" } : {}),
     taskPosition: settings.taskPosition,
     taskSource: settings.taskSource,
     moveActiveUnreadThreadsToTop: settings.moveActiveUnreadThreadsToTop,
@@ -47,10 +50,10 @@ function persisted(settings: TaskKeySettings): PersistedTaskKeySettings {
 
 @action({ UUID: "com.lukas-bhm.fingertip.task" })
 export class TaskKeyAction extends SingletonAction<PersistedTaskKeySettings> {
-  readonly #runtime: FingertipRuntime;
+  readonly #runtime: TaskRuntime;
   readonly #offerLegacyAppearance: (value: unknown) => void;
 
-  constructor(runtime: FingertipRuntime, offerLegacyAppearance: (value: unknown) => void = () => undefined) {
+  constructor(runtime: TaskRuntime, offerLegacyAppearance: (value: unknown) => void = () => undefined) {
     super();
     this.#runtime = runtime;
     this.#offerLegacyAppearance = offerLegacyAppearance;
@@ -96,6 +99,10 @@ export class TaskKeyAction extends SingletonAction<PersistedTaskKeySettings> {
   }
 
   override onSendToPlugin(event: SendToPluginEvent<JsonValue, PersistedTaskKeySettings>): void {
+    if (typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
+      && event.payload.command === "t3-pair" && typeof event.payload.link === "string") {
+      this.#runtime.pairT3?.(event.payload.link, typeof event.payload.serverAddress === "string" ? event.payload.serverAddress : undefined); return;
+    }
     const received = command(event.payload);
     if (received?.name === "retry-now") this.#runtime.retryNow();
     if (received?.name === "import-custom-sound" && received.status !== undefined) {

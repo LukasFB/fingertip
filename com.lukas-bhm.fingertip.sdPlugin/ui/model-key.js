@@ -29,6 +29,7 @@
       ? source[key] : defaults[key];
     return {
       version: 1,
+      ...(source.backend === "t3" ? { backend: "t3" } : {}),
       model: typeof source.model === "string" ? source.model.trim() : "",
       effort: typeof source.effort === "string" ? source.effort.trim() : "",
       backgroundColor: typeof source.backgroundColor === "string" && /^#[0-9a-f]{6}$/i.test(source.backgroundColor)
@@ -78,6 +79,9 @@
         settings = normalize(message.payload?.settings);
         notifySettings();
       }
+      if (message.event === "sendToPropertyInspector" && message.payload?.type === "fingertip-t3-state") {
+        for (const listener of stateListeners) listener(message.payload);
+      }
       if (message.event === "sendToPropertyInspector" && message.payload?.type === "fingertip-model-state") {
         if (message.payload.actionId && message.payload.actionId !== actionContext) return;
         state = message.payload;
@@ -105,6 +109,7 @@
         textAlignment: defaults.textAlignment,
       });
     },
+    pairT3(link, serverAddress) { send({ action, event: "sendToPlugin", context: socketContext, payload: { command: "t3-pair", link, serverAddress } }); },
     retry() { requestModels(); },
   });
 

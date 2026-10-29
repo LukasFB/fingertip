@@ -17,6 +17,7 @@ import { modelKeySettingsNeedWriteback, normalizeModelKeySettings, type ModelKey
 type PersistedModelKeySettings = JsonObject & Partial<ModelKeySettings>;
 
 export interface ModelKeyRuntime {
+  pairT3?(link: string, serverAddress?: string): void;
   attachModelKeyAction(action: KeyAction, settings: ModelKeySettings): void;
   updateModelKeySettings(action: KeyAction, settings: ModelKeySettings): void;
   detachModelKeyAction(id: string): void;
@@ -71,6 +72,10 @@ export class ModelKeyAction extends SingletonAction<PersistedModelKeySettings> {
   }
 
   override onSendToPlugin(event: SendToPluginEvent<JsonValue, PersistedModelKeySettings>): void {
+    if (typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
+      && event.payload.command === "t3-pair" && typeof event.payload.link === "string") {
+      this.runtime.pairT3?.(event.payload.link, typeof event.payload.serverAddress === "string" ? event.payload.serverAddress : undefined); return;
+    }
     if (typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
       && event.payload.command === "refresh-models") this.runtime.refreshModelCatalog();
   }

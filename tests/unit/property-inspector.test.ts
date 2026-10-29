@@ -21,7 +21,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
     assert.equal(html.includes(`value="${target}"`), true);
   }
   assert.equal(html.includes("https://"), false);
-  assert.match(html, /id="task-position" type="number" min="1" max="99" step="1"/u);
+  assert.match(html, /id="task-position" type="text" inputmode="numeric"/u);
   assert.match(html, /id="title-size" type="range" min="8" max="12" step="1"/u);
   assert.match(html, /id="project-size" type="range" min="6" max="12" step="1"/u);
   assert.match(html, /id="time-size" type="range" min="5" max="10" step="1"/u);
@@ -42,10 +42,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
     assert.equal(html.includes(`data-alignment="${alignment}"`), true);
   }
   assert.equal(html.includes('id="reset-appearance"'), true);
-  assert.match(html, /position\.addEventListener\("input"/u);
-  assert.match(html, /Number\.isInteger\(taskPosition\)/u);
-  assert.match(html, /taskPosition < 1/u);
-  assert.match(html, /taskPosition > 99/u);
+  assert.match(html, /bindTaskPosition\(position, FingertipPI\)/u);
   for (const id of ["idle-color", "working-color", "done-color", "waiting-color", "confirmation-color"]) {
     assert.equal(html.includes(`id="${id}" type="color"`), true);
   }
@@ -54,7 +51,7 @@ test("Property Inspector is fully local and exposes only the approved controls a
   assert.equal(html.includes("Dynamic Task status requires this key's custom image to be reset to Default."), true);
   assert.equal(html.includes("Reconnect ChatGPT"), true);
   assert.equal(html.includes("short backoff"), true);
-  assert.equal(html.includes("Applies to every Codex Task key."), true);
+  assert.equal(html.includes("Applies to every Agent Task key."), true);
   assert.equal(html.includes('id="done-notification"'), true);
   assert.equal(html.includes('id="confirmation-notification"'), true);
   assert.equal(html.includes("Notif. Done"), true);
@@ -96,8 +93,8 @@ test("manifest exposes configurable model and fast-mode keys without selector pr
   assert.equal(manifest.CategoryIcon, "imgs/plugin/category-list");
   assert.equal(manifest.Profiles, undefined);
   assert.deepEqual(manifest.Actions.map(({ UUID, Name }) => ({ UUID, Name })), [
-    { UUID: "com.lukas-bhm.fingertip.task", Name: "Codex Task" },
-    { UUID: "com.lukas-bhm.fingertip.model", Name: "Codex Model" },
+    { UUID: "com.lukas-bhm.fingertip.task", Name: "Agent Task" },
+    { UUID: "com.lukas-bhm.fingertip.model", Name: "Agent Model" },
     { UUID: "com.lukas-bhm.fingertip.fast-mode", Name: "Fast Mode" },
   ]);
   assert.equal(manifest.Actions[1]?.PropertyInspectorPath, "ui/model-key.html");
@@ -161,7 +158,7 @@ test("Property Inspector keeps Task Position local and persists appearance globa
   }));
   FakeWebSocket.instance?.listeners.get("open")?.({ data: "" });
 
-  const api = window.FingertipPI as { setSetting(key: string, value: unknown): void };
+  const api = window.FingertipPI as { setSetting(key: string, value: unknown): void; pairT3(link: string, serverAddress?: string): void };
   assert.equal(sent.some((message) => message.event === "getGlobalSettings"), true);
 
   FakeWebSocket.instance?.listeners.get("message")?.({ data: JSON.stringify({
@@ -229,6 +226,16 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     taskPosition: 7,
     taskSource: "tasks",
   });
+
+  api.setSetting("backend", "t3");
+  api.setSetting("taskPosition", 8);
+  assert.equal((sent.at(-1)?.payload as Record<string, unknown>).backend, "t3");
+  api.pairT3("t3code://app/pair#token=test-only", "http://127.0.0.1:3774");
+  assert.equal((sent.at(-1)?.payload as Record<string, unknown>).serverAddress, "http://127.0.0.1:3774");
+  assert.equal(sent.at(-1)?.event, "sendToPlugin");
+  assert.equal(sent.filter((message) => message.event === "setSettings").some((message) => JSON.stringify(message.payload).includes("test-only")), false);
+  api.setSetting("backend", "codex");
+  api.setSetting("taskPosition", 7);
 
   api.setSetting("taskSource", "pinned-projects");
   const source = sent.at(-1) as { event?: string; payload?: Record<string, unknown> } | undefined;
@@ -338,4 +345,35 @@ test("Property Inspector keeps Task Position local and persists appearance globa
     context: "pi-context",
     payload: { command: "preview-sound", status: "confirmation" },
   });
+});
+
+test("Task Position accepts typing, preserves drafts across settings echoes, and validates on blur", async () => {
+  const listeners = new Map<string, (event?: unknown) => void>();
+  let settingsListener!: (settings: { taskPosition: number }) => void;
+  const writes: number[] = [];
+  const input = { value: "", addEventListener(name: string, listener: (event?: unknown) => void) { listeners.set(name, listener); },
+    blur() { listeners.get("blur")!(); } };
+  const context = vm.createContext({});
+  vm.runInContext(await readFile("com.lukas-bhm.fingertip.sdPlugin/ui/task-position.js", "utf8"), context);
+  context.bindTaskPosition(input, {
+    onSettings(listener: typeof settingsListener) { settingsListener = listener; listener({ taskPosition: 6 }); },
+    setSetting(_key: string, value: number) { writes.push(value); settingsListener({ taskPosition: value }); },
+  });
+  listeners.get("focus")!();
+  input.value = ""; listeners.get("input")!();
+  settingsListener({ taskPosition: 6 });
+  assert.equal(input.value, "", "clearing the field must survive delayed settings echoes");
+  input.value = "1"; listeners.get("input")!();
+  input.value = "12"; listeners.get("input")!();
+  settingsListener({ taskPosition: 1 });
+  assert.equal(input.value, "12", "an older echo must not interrupt multi-digit typing");
+  listeners.get("keydown")!({ key: "Enter", preventDefault() {} });
+  assert.equal(writes.at(-1), 12);
+  for (const value of ["", "0", "100", "-1", "1.5", "1e1", "abc"]) {
+    listeners.get("focus")!(); input.value = value; listeners.get("input")!(); input.blur();
+    assert.equal(input.value, "12");
+    assert.equal(writes.at(-1), 12);
+  }
+  settingsListener({ taskPosition: 7 });
+  assert.equal(input.value, "7", "external changes apply when the field is not being edited");
 });

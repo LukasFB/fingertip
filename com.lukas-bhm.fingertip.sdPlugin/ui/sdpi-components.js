@@ -58,6 +58,7 @@
       ? source.taskPosition : localDefaults.taskPosition;
     const taskSource = source.taskSource === "tasks" ? "tasks" : "pinned-projects";
     return {
+      ...(source.backend === "t3" ? { backend: "t3" } : {}),
       version: 9,
       taskPosition,
       taskSource,
@@ -164,7 +165,7 @@
     onSettings(listener) { settingsListeners.add(listener); listener({ ...localSettings, ...appearance }); },
     onState(listener) { stateListeners.add(listener); },
     setSetting(key, value) {
-      if (key === "taskPosition" || key === "taskSource") {
+      if (key === "taskPosition" || key === "taskSource" || key === "backend") {
         localSettings = normalizedLocal({ ...localSettings, [key]: value });
         send({ event: "setSettings", context, payload: localSettings });
       } else {
@@ -210,6 +211,7 @@
         payload: { command: "preview-sound", status },
       });
     },
+    pairT3(link, serverAddress) { send({ action, event: "sendToPlugin", context, payload: { command: "t3-pair", link, serverAddress } }); },
     retry() {
       send({ action, event: "sendToPlugin", context, payload: { command: "retry-now" } });
     },

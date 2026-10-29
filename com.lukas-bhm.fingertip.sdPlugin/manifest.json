@@ -2,9 +2,9 @@
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "UUID": "com.lukas-bhm.fingertip",
   "Name": "Fingertip Agent",
-  "Version": "1.1.2.0",
+  "Version": "1.2.0.0",
   "Author": "Lukas Böhm",
-  "Description": "See live ChatGPT Codex task status, open the right task, and select its model and thinking level from Stream Deck.",
+  "Description": "Live Codex and T3 Code tasks, navigation, model selection and Fast Mode on Stream Deck.",
   "Category": "Fingertip Agent",
   "CategoryIcon": "imgs/plugin/category-list",
   "Icon": "imgs/plugin/plugin",
@@ -30,9 +30,9 @@
   "Actions": [
     {
       "UUID": "com.lukas-bhm.fingertip.task",
-      "Name": "Codex Task",
+      "Name": "Agent Task",
       "Icon": "imgs/actions/task/action-list",
-      "Tooltip": "Shows and opens a ranked local ChatGPT Task.",
+      "Tooltip": "Shows and opens a task from Codex or T3 Code.",
       "Controllers": [
         "Keypad"
       ],
@@ -47,9 +47,9 @@
     },
     {
       "UUID": "com.lukas-bhm.fingertip.model",
-      "Name": "Codex Model",
+      "Name": "Agent Model",
       "Icon": "imgs/actions/model/action-list",
-      "Tooltip": "Applies your chosen model and thinking level to the active ChatGPT thread.",
+      "Tooltip": "Applies a model and thinking level to the active Codex or T3 Code thread.",
       "Controllers": [
         "Keypad"
       ],
@@ -66,7 +66,7 @@
       "UUID": "com.lukas-bhm.fingertip.fast-mode",
       "Name": "Fast Mode",
       "Icon": "imgs/actions/model/action-list",
-      "Tooltip": "Toggles Fast Mode for the active ChatGPT thread.",
+      "Tooltip": "Toggles Fast Mode for the active thread in the selected app.",
       "Controllers": [
         "Keypad"
       ],
@@ -76,7 +76,8 @@
         {
           "Image": "imgs/actions/model/key"
         }
-      ]
+      ],
+      "PropertyInspectorPath": "ui/fast-mode.html"
     }
   ]
 }

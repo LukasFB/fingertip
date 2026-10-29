@@ -36,7 +36,7 @@ export interface TaskKeySnapshot {
   readonly highlighted?: true;
   readonly liveFreshness: LiveFreshness;
   readonly offlineWarning: boolean;
-  readonly pressTarget: `codex://threads/${string}`;
+  readonly pressTarget: string;
   readonly renderSignature: string;
 }
 
@@ -104,7 +104,8 @@ export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
   }
 
   if (task === null || live === null) throw new TypeError("task presentation requires a catalog Task");
-  const id = parseTaskId(task.id);
+  const id = input.settings.backend === "t3" && /^t3:[^:]+:.+$/.test(task.id)
+    ? task.id as TaskId : parseTaskId(task.id);
   const activityLabel = formatTaskActivityTime(task.activityAt, input.now);
   const candidateTaskChangeStats = input.appearance.showGitDiffStats
     ? input.taskChangeStatsByTaskId?.get(id) : undefined;
@@ -153,7 +154,8 @@ export function createKeySnapshot(input: KeySnapshotInput): KeySnapshot {
     ...(highlighted ? { highlighted: true as const } : {}),
     liveFreshness: live.freshness,
     offlineWarning: presentation.offlineWarning,
-    pressTarget: `codex://threads/${id}` as const,
+    pressTarget: input.settings.backend === "t3"
+      ? `t3code://threads/${id.slice(3).replace(":", "/")}` : `codex://threads/${id}`,
     renderSignature: JSON.stringify(signatureFields),
   };
   return task.projectLabel === undefined

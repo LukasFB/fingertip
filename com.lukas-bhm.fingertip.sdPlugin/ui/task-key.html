@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Codex Task Settings</title>
   <script src="sdpi-components.js"></script>
+  <script src="task-position.js"></script>
   <style>
     :root { color-scheme: dark; font: 13px -apple-system, BlinkMacSystemFont, sans-serif; }
     body { margin: 0; padding: 12px; color: #f7f7f7; background: #292929; }
@@ -15,7 +16,7 @@
     .tabs button[aria-selected="true"] { color: #111; border-color: #bde2fa; background: #96cff4; }
     label { color: #d4d4d4; text-align: right; }
     input, select, button { box-sizing: border-box; width: 100%; accent-color: #96cff4; }
-    input[type="number"] { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
+    input[type="number"], #task-position { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
     select { min-height: 28px; padding: 4px 7px; color: white; border: 1px solid #555; border-radius: 4px; background: #383838; }
     input[type="color"] { min-height: 30px; padding: 2px; border: 1px solid #555; border-radius: 5px; background: #383838; cursor: pointer; }
     .colors { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
@@ -65,7 +66,7 @@
   <div class="item" data-tab="general">
     <label for="task-position">Task Position</label>
     <div>
-      <input id="task-position" type="number" min="1" max="99" step="1" value="1">
+      <input id="task-position" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" value="1" autocomplete="off">
       <div class="helper">1 is the first Task within the selected sidebar section.</div>
     </div>
   </div>
@@ -73,7 +74,7 @@
     <label for="move-active-unread-threads">Project Threads</label>
     <div>
       <label class="toggle"><input id="move-active-unread-threads" type="checkbox"><span>Move active &amp; unread threads to top</span></label>
-      <div class="helper">Applies to every Codex Task key. Active and unread Threads come first; idle Threads follow in sidebar order. Pinned threads stay unchanged.</div>
+      <div class="helper">Applies to every Agent Task key. Active and unread Threads come first; idle Threads follow in sidebar order. Pinned threads stay unchanged.</div>
     </div>
   </div>
   <div class="item" data-tab="general">
@@ -113,7 +114,7 @@
   </div>
   <div class="item" data-tab="appearance" hidden>
     <label></label>
-    <div class="helper">Appearance · Applies to every Codex Task key.</div>
+    <div class="helper">Appearance · Applies to every Agent Task key.</div>
   </div>
   <div class="item" data-tab="appearance" hidden>
     <label for="title-size">Title Size</label>
@@ -181,7 +182,7 @@
   </div>
   <div class="item" data-tab="notifications" hidden>
     <label></label>
-    <div class="helper">Notifications · Applies to every Codex Task key.</div>
+    <div class="helper">Notifications · Applies to every Agent Task key.</div>
   </div>
   <div class="item" data-tab="notifications" hidden>
     <label>Notif. Done</label>
@@ -299,6 +300,7 @@
   <script>
     const source = document.querySelector("#task-source");
     const position = document.querySelector("#task-position");
+    bindTaskPosition(position, FingertipPI);
     const moveActiveUnreadThreads = document.querySelector("#move-active-unread-threads");
     const queueBadge = document.querySelector("#queue-badge");
     const goalBadge = document.querySelector("#goal-badge");
@@ -396,7 +398,6 @@
 
     FingertipPI.onSettings((settings) => {
       source.value = settings.taskSource;
-      position.value = String(settings.taskPosition);
       moveActiveUnreadThreads.checked = settings.moveActiveUnreadThreadsToTop;
       queueBadge.checked = settings.showQueueBadge;
       goalBadge.checked = settings.showGoalBadge;
@@ -442,7 +443,7 @@
       preview.src = state.preview;
       const info = state.connection || {};
       connection.textContent = `${info.label || "Connecting…"}${info.retrySeconds ? ` · retry in ${info.retrySeconds}s` : ""}`;
-      versions.textContent = [info.appVersion && `ChatGPT ${info.appVersion}`, info.codexVersion].filter(Boolean).join(" · ");
+      versions.textContent = [info.appVersion && `App ${info.appVersion}`, info.codexVersion].filter(Boolean).join(" · ");
       for (const [status, notification] of Object.entries(notifications)) {
         const available = state.customSounds?.[status] === true;
         const selectedSource = notification.sourceButtons.find((button) => button.getAttribute("aria-pressed") === "true")
@@ -451,11 +452,6 @@
           ? available ? "Custom audio is ready." : "Choose a custom audio file first (max. 25 MB)."
           : "";
       }
-    });
-    position.addEventListener("input", () => {
-      const taskPosition = Number(position.value);
-      if (!Number.isInteger(taskPosition) || taskPosition < 1 || taskPosition > 99) return;
-      FingertipPI.setSetting("taskPosition", taskPosition);
     });
     source.addEventListener("change", () => FingertipPI.setSetting("taskSource", source.value));
     moveActiveUnreadThreads.addEventListener("change", () => FingertipPI.setSetting("moveActiveUnreadThreadsToTop", moveActiveUnreadThreads.checked));
@@ -530,5 +526,6 @@
     document.querySelector("#retry").addEventListener("click", () => FingertipPI.retry());
     document.querySelector("#reset-appearance").addEventListener("click", () => FingertipPI.resetAppearance());
   </script>
+  <script src="t3-connection.js"></script>
 </body>
 </html>

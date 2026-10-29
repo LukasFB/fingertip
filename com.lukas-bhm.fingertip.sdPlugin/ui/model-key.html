@@ -54,7 +54,7 @@
   <div class="item" data-tab="general">
     <label></label>
     <div>
-      <div class="helper">Press this key to apply its model and thinking level to the active Codex thread.</div>
+      <div class="helper">Press this key to apply its model and thinking level to the active thread.</div>
       <div id="selection-status" class="helper" role="status" aria-live="polite"></div>
     </div>
   </div>
@@ -95,7 +95,7 @@
   <div class="item" data-tab="status" hidden>
     <label></label><button id="refresh-models" type="button">Refresh models</button>
   </div>
-  <div class="notice">Models and supported thinking levels come from your installed Codex app. The key applies to whichever thread is active when pressed.</div>
+  <div class="notice">Models and supported thinking levels come from your selected app. The key applies to whichever thread is active when pressed.</div>
   <script>
     const model = document.querySelector("#model");
     const effort = document.querySelector("#effort");
@@ -140,13 +140,13 @@
       if (catalog.loading && entries.length === 0) selectionStatus.textContent = "Loading available models…";
       else if (catalog.error && entries.length === 0) selectionStatus.textContent = settings.model
         ? "The saved selection is retained. Models are unavailable; refresh them in Status."
-        : "Models are unavailable. Open Codex and refresh models in Status.";
+        : "Models are unavailable. Open the selected app and refresh models in Status.";
       else if (!settings.model) selectionStatus.textContent = "Choose a model and thinking level for this key.";
       else if (!selected) selectionStatus.textContent = "The saved model is retained. Refresh models to check its availability.";
       else if (settings.effort && !chosenEffort) selectionStatus.textContent = "The saved thinking level is unavailable for this model. Choose a supported level.";
       else if (levels.length > 0 && !settings.effort) selectionStatus.textContent = "Choose a thinking level for this model.";
       else if (levels.length === 0) selectionStatus.textContent = "This model exposes no configurable thinking levels.";
-      else if (catalog.activeThreadId === null) selectionStatus.textContent = "Open a Codex thread before pressing this key.";
+      else if (catalog.activeThreadId === null) selectionStatus.textContent = "Open a thread before pressing this key.";
       else if (catalog.error) selectionStatus.textContent = "The saved catalog is shown. Refresh models to check availability.";
       else selectionStatus.textContent = "Ready to apply to the active thread.";
     }
@@ -162,6 +162,7 @@
       renderSelection();
     });
     FingertipModelPI.onState((value) => {
+      if (value.type !== "fingertip-model-state") return;
       catalog = value;
       if (typeof value.preview === "string" && value.preview.startsWith("data:image/")) document.querySelector("#preview").src = value.preview;
       const count = Array.isArray(value.models) ? value.models.length : 0;
@@ -169,7 +170,7 @@
         ? `${value.error}${count ? " Saved model catalog is shown." : ""}`
         : value.loading ? "Refreshing available models…" : count ? `${count} models available.` : "No models available. Refresh to retry.";
       document.querySelector("#target-status").textContent = value.activeThreadId
-        ? "Active Codex thread detected." : "No active Codex thread detected. Open a thread before pressing the key.";
+        ? "Active thread detected." : "No active thread detected. Open a thread before pressing the key.";
       document.querySelector("#refresh-models").disabled = value.loading === true;
       renderSelection();
     });
@@ -186,5 +187,6 @@
     document.querySelector("#refresh-models").addEventListener("click", () => FingertipModelPI.retry());
     document.querySelector("#reset-appearance").addEventListener("click", () => FingertipModelPI.resetAppearance());
   </script>
+  <script src="t3-connection.js"></script>
 </body>
 </html>

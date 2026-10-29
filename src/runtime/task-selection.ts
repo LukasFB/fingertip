@@ -32,7 +32,9 @@ function orderedTasksForKey(
   context: TaskSelectionContext,
 ): readonly CatalogTask[] {
   const selected = feed.filter((task) => task.source === settings.taskSource);
-  if (!settings.moveActiveUnreadThreadsToTop) return selected;
+  // The T3 feed already follows inbox + Working shelf order. Reapplying the
+  // Codex preference would move read inbox threads below the Working shelf.
+  if (settings.backend === "t3" || !settings.moveActiveUnreadThreadsToTop) return selected;
 
   const reorderableTasks = selected.filter((task) => isReorderedTask(task, settings));
   const prioritizedTasks = [

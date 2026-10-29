@@ -4,6 +4,7 @@ export type ModelKeyTextAlignment = "left" | "center" | "right";
 
 export interface ModelKeySettings extends JsonObject {
   readonly version: 1;
+  readonly backend?: "t3" | "codex";
   readonly model: string;
   readonly effort: string;
   readonly backgroundColor: string;
@@ -28,6 +29,7 @@ export function normalizeModelKeySettings(value: unknown): ModelKeySettings {
   const source = record(value);
   return Object.freeze({
     version: 1,
+    ...(source.backend === "t3" ? { backend: "t3" as const } : {}),
     model: identifier(source.model),
     effort: identifier(source.effort),
     backgroundColor: typeof source.backgroundColor === "string" && /^#[0-9a-f]{6}$/iu.test(source.backgroundColor)
