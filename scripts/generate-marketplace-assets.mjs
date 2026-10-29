@@ -16,6 +16,7 @@ import {
   normalizeTaskKeySettings,
 } from "../src/settings/task-key-settings.ts";
 import { renderSnapshotDataUrl } from "../src/runtime/task-key-render-queue.ts";
+import { compileRenderer, hardwareCopy, png, renderHtml } from "./marketplace-assets/artwork.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repository = resolve(scriptDirectory, "..");
@@ -121,16 +122,19 @@ async function renderKeys(workDirectory) {
 
   for (const [index, task] of tasks.entries()) {
     const keyNumber = index + 1;
+    const backend = index >= 7 ? "t3" : "codex";
+    const { taskChangeStats, queuedMessageCount, ...commonTask } = task;
     const snapshot = {
       kind: "task",
-      settings: normalizeTaskKeySettings({ taskPosition: keyNumber, taskSource: "pinned-projects" }),
+      settings: normalizeTaskKeySettings({ backend, taskPosition: keyNumber, taskSource: "pinned-projects" }),
       appearance,
       taskId: `marketplace-task-${String(keyNumber).padStart(2, "0")}`,
       pressTarget: `codex://threads/marketplace-task-${String(keyNumber).padStart(2, "0")}`,
       liveFreshness: "fresh",
       offlineWarning: false,
       renderSignature: `marketplace-artwork-${keyNumber}`,
-      ...task,
+      ...commonTask,
+      ...(backend === "codex" ? { taskChangeStats, queuedMessageCount } : {}),
     };
     const effect = task.status === "working"
       ? { kind: "working-noise", intensity: 1, phase: (index + 3) / 20 }
@@ -167,7 +171,7 @@ async function renderKeys(workDirectory) {
   return keysDirectory;
 }
 
-function composeAsset(assetName, asset, keysDirectory, workDirectory) {
+async function composeAsset(assetName, asset, keysDirectory, workDirectory, renderer, logo) {
   const panel = perspective.panel;
   const panelPath = join(workDirectory, `${assetName}.panel.png`);
   const projectedPath = join(workDirectory, `${assetName}.projected.png`);
@@ -216,7 +220,12 @@ function composeAsset(assetName, asset, keysDirectory, workDirectory) {
   };
   project(panelPath, asset.destinationCorners, projectedPath);
 
-  const composeArgs = [join(basesDirectory, assetName), projectedPath, "-composite"];
+  const copyLayer = await renderHtml(renderer, workDirectory, `${assetName}.copy`, hardwareCopy(assetName, logo));
+  const rightPanel = assetName === "thumbnail.png" || assetName === "gallery-3-exact-task.png";
+  const panelX = rightPanel ? 1050 : 0;
+  const composeArgs = [join(basesDirectory, assetName), projectedPath, "-composite",
+    "(", copyLayer, "-crop", `${rightPanel ? 870 : 781}x960+${panelX}+0`, "+repage", ")",
+    "-geometry", `+${panelX}+0`, "-composite"];
   for (const callout of asset.callouts) {
     composeArgs.push(
       "(", keyPath(keysDirectory, callout.key), "-resize", `${callout.size}x${callout.size}!`, ")",
@@ -232,10 +241,13 @@ function composeAsset(assetName, asset, keysDirectory, workDirectory) {
 validateTaskLayout();
 const workDirectory = await mkdtemp(join(tmpdir(), "fingertip-marketplace-"));
 try {
+  await mkdir(outputDirectory, { recursive: true });
+  const renderer = compileRenderer(repository, workDirectory);
+  const logo = await png(join(repository, "assets/fingertip-logo-master.png"));
   const keysDirectory = await renderKeys(workDirectory);
   const generated = [];
   for (const [assetName, asset] of Object.entries(perspective.assets)) {
-    generated.push([assetName, composeAsset(assetName, asset, keysDirectory, workDirectory)]);
+    generated.push([assetName, await composeAsset(assetName, asset, keysDirectory, workDirectory, renderer, logo)]);
   }
   for (const [assetName, source] of generated) {
     await copyFile(source, join(outputDirectory, assetName));

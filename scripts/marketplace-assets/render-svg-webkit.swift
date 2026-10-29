@@ -2,8 +2,8 @@ import AppKit
 import Foundation
 import WebKit
 
-guard CommandLine.arguments.count == 4 else {
-    fputs("usage: render-svg-webkit input.svg output.png size\n", stderr)
+guard CommandLine.arguments.count == 4 || CommandLine.arguments.count == 5 else {
+    fputs("usage: render-svg-webkit input.svg|html output.png width [height]\n", stderr)
     exit(2)
 }
 
@@ -13,6 +13,7 @@ guard let size = Int(CommandLine.arguments[3]), size > 0 else {
     fputs("invalid size\n", stderr)
     exit(2)
 }
+let height = CommandLine.arguments.count == 5 ? Int(CommandLine.arguments[4]) ?? size : size
 guard let svg = try? String(contentsOfFile: input, encoding: .utf8) else {
     fputs("could not read SVG\n", stderr)
     exit(1)
@@ -55,14 +56,14 @@ application.setActivationPolicy(.prohibited)
 let configuration = WKWebViewConfiguration()
 configuration.suppressesIncrementalRendering = true
 let webView = WKWebView(
-    frame: NSRect(x: 0, y: 0, width: size, height: size),
+    frame: NSRect(x: 0, y: 0, width: size, height: height),
     configuration: configuration
 )
 webView.wantsLayer = true
 let renderer = Renderer(webView: webView, output: output)
 webView.navigationDelegate = renderer
 let window = NSWindow(
-    contentRect: NSRect(x: 0, y: 0, width: size, height: size),
+    contentRect: NSRect(x: 0, y: 0, width: size, height: height),
     styleMask: [],
     backing: .buffered,
     defer: false
@@ -74,5 +75,9 @@ window.orderOut(nil)
 
 let encodedSvg = svg.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? svg
 let html = "<html><head><style>html,body{margin:0;padding:0;background:transparent;width:\(size)px;height:\(size)px;overflow:hidden}img{display:block;width:\(size)px;height:\(size)px}</style></head><body><img src=\"data:image/svg+xml,\(encodedSvg)\"></body></html>"
-webView.loadHTMLString(html, baseURL: nil)
+if input.hasSuffix(".html") {
+    webView.loadHTMLString(svg, baseURL: URL(fileURLWithPath: input).deletingLastPathComponent())
+} else {
+    webView.loadHTMLString(html, baseURL: nil)
+}
 application.run()
