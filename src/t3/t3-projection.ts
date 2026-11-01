@@ -48,7 +48,10 @@ function sidebarTime(item: T3Thread): number {
       timestamp(item.latestRunRequestedAt), timestamp(item.latestRunCompletedAt));
 }
 export function taskFeed(threads: Iterable<T3Thread>, projects: Map<string, Record<string, unknown>>, environmentId: string, source: string): CatalogTask[] {
-  const items = [...threads].filter((item) => eligible(item) && !item.settledAt && item.settledOverride !== "settled"
+  // Side chats live inside their parent in T3, even when they are unsettled.
+  // Listing them here consumes key slots before the Working shelf.
+  const items = [...threads].filter((item) => eligible(item) && record(item.lineage).sideChat !== true
+    && !item.settledAt && item.settledOverride !== "settled"
     && timestamp(item.snoozedUntil) <= Date.now());
   items.sort((a, b) => {
     const pinned = Number(Boolean(b.pinnedAt)) - Number(Boolean(a.pinnedAt));

@@ -71,6 +71,22 @@ test("T3 settings round trip without writeback loops and Codex defaults remain u
   assert.equal(normalizeModelKeySettings({ backend: "t3" }).backend, "t3");
 });
 
+test("T3 side chats cannot displace the four inbox threads and two working keys", () => {
+  const inbox = [shell("done"), ...[1, 2, 3].map(id => shell(`read-${id}`, { lastVisitedAt: newer }))];
+  const working = [shell("working-1", { status: "running" }), shell("working-2", { status: "running" })];
+  const sideChats = ["completed", "running"].map(status => shell(`side-${status}`, {
+    status, pinnedAt: newer, lineage: { relationshipToParent: "fork", sideChat: true },
+  }));
+  const hidden = [shell("settled", { settledOverride: "settled" }), shell("settled-at", { settledAt: newer })];
+  for (const source of ["tasks", "pinned-projects"]) {
+    const feed = taskFeed([...sideChats, ...working, ...hidden, ...inbox], new Map(), "env", source);
+    assert.deepEqual(feed.map(item => item.title), ["done", "read-1", "read-2", "read-3", "working-1", "working-2"]);
+  }
+  assert.deepEqual([...inbox, ...working].map(threadStatus), ["done", "idle", "idle", "idle", "working", "working"]);
+  const fork = shell("regular-fork", { lineage: { relationshipToParent: "fork", sideChat: false } });
+  assert.equal(taskFeed([fork], new Map(), "env", "tasks").length, 1, "regular forks remain independent sidebar threads");
+});
+
 test("T3 inbox returns precede working threads regardless of old send and manual order", () => {
   const items = [
     shell("working-new", { status: "running", latestUserAuthoredMessageAt: newer, activeOrderKey: "a" }),

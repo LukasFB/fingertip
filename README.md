@@ -141,7 +141,7 @@ not in exported Stream Deck profiles. Pair again if access expires or is
 revoked, or to switch servers. Local HTTP and remote HTTPS origins are accepted.
 
 T3 task keys show pinned and active top-level threads, or just unpinned active
-threads. Archived, settled, snoozed and subagent threads are omitted. Pinned
+threads. Archived, settled, snoozed, subagent and side-chat threads are omitted. Pinned
 threads keep their pin order, followed by the inbox (newest completion or return
 first), then the Working shelf in send order. This follows T3's Working shelf
 layout; other sidebar grouping preferences are not mirrored. Press to
