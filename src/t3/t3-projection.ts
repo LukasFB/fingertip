@@ -23,8 +23,8 @@ export function threadStatus(item: T3Thread): TaskStatus {
   const request = record(item.pendingRuntimeRequest);
   if (request.kind) return ["command", "file-read", "file-change", "file", "permission", "command_execution", "file_change", "permissions"].includes(String(request.kind))
     || String(request.kind).includes("approval") ? "confirmation" : "waiting";
-  // T3's runtime waiting/queued states still belong to Working; only an
-  // explicit runtime request above means the user needs to respond.
+  // Runtime waits and completion-holding background work belong to Working;
+  // only an explicit runtime request above means the user needs to respond.
   if (inWorkingShelf(item)) return "working";
   if (item.status === "failed") return "waiting";
   if (item.status === "completed" && timestamp(item.latestRunCompletedAt) > timestamp(item.lastVisitedAt)) return "done";
@@ -38,7 +38,9 @@ export function threadLink(environmentId: string, id: string): string {
 }
 function inWorkingShelf(item: T3Thread): boolean {
   return !record(item.pendingRuntimeRequest).kind
-    && ["preparing", "queued", "starting", "running", "waiting"].includes(String(item.status));
+    && (["preparing", "queued", "starting", "running", "waiting"].includes(String(item.status))
+      || records(item.pendingBackgroundTasks).some((task) => task.awaited === true
+        || task.kind === "subagent" || task.kind === "background_task"));
 }
 function sidebarTime(item: T3Thread): number {
   return inWorkingShelf(item)

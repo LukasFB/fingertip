@@ -51,6 +51,23 @@ test("T3 queued and waiting runtimes stay working, including active goals, unles
   }
 });
 
+test("T3 background waits stay working and sort by send time until the background work finishes", () => {
+  for (const task of [{ kind: "subagent" }, { kind: "background_task" },
+    { kind: "command", awaited: true }, { kind: "monitor", awaited: true }]) {
+    const item = shell("waiting", { pendingBackgroundTasks: [{ taskId: "bg", ...task }],
+      latestUserAuthoredMessageAt: older });
+    assert.equal(threadStatus(item), "working");
+    assert.deepEqual(taskFeed([item, shell("running", { status: "running", latestUserAuthoredMessageAt: newer }),
+      shell("inbox")], new Map(), "env", "tasks").map(item => item.title), ["inbox", "running", "waiting"]);
+    assert.equal(threadStatus({ ...item, pendingRuntimeRequest: { kind: "user_input" } }), "waiting");
+    assert.equal(threadStatus({ ...item, pendingRuntimeRequest: { kind: "command" } }), "confirmation");
+    assert.equal(threadStatus({ ...item, pendingBackgroundTasks: [] }), "done");
+  }
+  for (const kind of ["command", "monitor"]) {
+    assert.equal(threadStatus(shell("done", { pendingBackgroundTasks: [{ taskId: "bg", kind }] })), "done");
+  }
+});
+
 test("T3 feed keeps opaque thread IDs, encodes navigation and filters hidden threads", () => {
   const items = [shell("thread:a/b", { pinnedAt: newer }), shell("normal"), shell("archived", { archivedAt: newer }),
     shell("child", { lineage: { relationshipToParent: "subagent" } }), shell("settled", { settledAt: newer })];
@@ -312,6 +329,10 @@ test("repository enrichment preserves running threads, projects and later status
     assert.match(decodeURIComponent(preview.slice(preview.indexOf(",") + 1)), /#9cd5fe/,
       `${status} during an active goal must keep the blue working render`);
   }
+  receive({ kind: "thread.updated", location: "active", thread: { ...working, status: "completed",
+    pendingBackgroundTasks: [{ taskId: "watch", kind: "monitor", awaited: true }] } });
+  assert.match(decodeURIComponent(preview.slice(preview.indexOf(",") + 1)), /#9cd5fe/,
+    "waiting on background work must keep the blue working render");
   receive({ kind: "thread.updated", location: "active", thread: working });
   receive({ kind: "snapshot", resolvedRepositoryIdentityRoots: [], snapshot: { threads: [], projects: [] } });
   assert.equal(preview, blue, "an enrichment snapshot cannot empty the thread list");
