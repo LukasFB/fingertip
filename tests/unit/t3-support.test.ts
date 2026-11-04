@@ -216,6 +216,56 @@ test("Effect RPC handles stream acknowledgements, unary success/failure and disc
 });
 
 const notifier: TaskNotifier = { notify() {}, async importCustomSound() { return false; }, async customSoundAvailable() { return false; } };
+test("T3 notifications distinguish marking unread from completed work", async (t) => {
+  let receive!: (event: unknown) => void;
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  const notifications: string[] = [];
+  let preview = "";
+  const client: T3RuntimeClient = {
+    environmentId: "env", version: "test", async connect() {}, close() {},
+    subscribe(tag, _payload, listener) { if (tag === "orchestration.subscribeShell") { receive = listener; ready(); } },
+    async rpc() { return config; }, async http() { return {}; },
+  };
+  const runtime = new T3Runtime(async value => {
+    const state = record(value);
+    if (state.type === "fingertip-state") preview = decodeURIComponent(String(state.preview).split(",")[1]!);
+  }, { ...notifier, notify(value) { notifications.push(value.status); } }, {
+    async loadCredentials() { return { origin: "http://localhost", token: "test" }; }, createClient() { return client; },
+  });
+  t.after(() => runtime.shutdown());
+  runtime.updateAppearance({ doneNotification: "both", confirmationNotification: "both" });
+  runtime.attachAction({ id: "task", async setImage() {}, async showAlert() {} }, normalizeTaskKeySettings({ backend: "t3" }));
+  runtime.propertyInspectorDidAppear("task");
+  await started;
+  const completed = shell("live");
+  const read = { ...completed, lastVisitedAt: newer };
+  const update = (item: typeof completed) => receive({ kind: "thread.updated", location: "active", thread: item });
+  const scenarios = [
+    { label: "manual unread", before: read,
+      after: { ...read, lastVisitedAt: "2026-10-28T12:59:59.999Z" }, expected: [] },
+    { label: "new completion without an observed running event", before: read,
+      after: { ...read, latestRunCompletedAt: "2026-10-28T14:00:00.000Z" }, expected: ["done"] },
+    { label: "running completion", before: { ...completed, status: "running", latestRunCompletedAt: null },
+      after: completed, expected: ["done"] },
+    { label: "background work finished without a new completion timestamp",
+      before: { ...completed, pendingBackgroundTasks: [{ kind: "subagent" }] }, after: completed, expected: ["done"] },
+    { label: "approval request", before: read,
+      after: { ...read, pendingRuntimeRequest: { kind: "command" } }, expected: ["confirmation"] },
+  ];
+  for (const scenario of scenarios) {
+    notifications.length = 0;
+    receive({ kind: "snapshot", snapshot: { threads: [scenario.before], projects: [] } });
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.deepEqual(notifications, [], "snapshot must stay silent");
+    update(scenario.after);
+    assert.deepEqual(notifications, scenario.expected, scenario.label);
+    if (scenario.label === "manual unread") assert.match(preview, /Task 1: live, done/);
+    update(scenario.after);
+    assert.deepEqual(notifications, scenario.expected, "duplicate update must stay silent");
+  }
+});
+
 test("T3 completion moves the green task from key 2 to key 1 on the live event", async (t) => {
   let receive!: (event: unknown) => void;
   let ready!: () => void;

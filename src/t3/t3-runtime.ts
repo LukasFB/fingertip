@@ -14,7 +14,7 @@ import { FastModeKeyAnimator } from "../runtime/fast-mode-key-animator.ts";
 import { DEFAULT_TASK_KEY_APPEARANCE, normalizeTaskKeyAppearanceSettings, type TaskKeySettings } from "../settings/task-key-settings.ts";
 import type { ModelKeySettings } from "../settings/model-key-settings.ts";
 import { loadCredentials, pairT3, record, records, saveCredentials, T3Client, type T3Credentials } from "./t3-client.ts";
-import { activeThread, eligible, modelOptions, modelsFromConfig, selections, taskFeed, taskKey, thread, threadLink, threadStatus, type T3Model, type T3Thread } from "./t3-projection.ts";
+import { activeThread, eligible, modelOptions, modelsFromConfig, selections, taskFeed, taskKey, thread, threadLink, threadStatus, timestamp, type T3Model, type T3Thread } from "./t3-projection.ts";
 
 interface KeyPort { id: string; setImage(image: string): Promise<void>; showAlert(): Promise<void> }
 interface ModelEntry { action: KeyPort; settings: ModelKeySettings; image: string; tail: Promise<unknown> }
@@ -194,6 +194,10 @@ export class T3Runtime {
     const live = (item: T3Thread): LiveTaskRecord => ({ taskId: key, ownerClientId: "t3", revision: 0,
       status: threadStatus(item), freshness: "fresh", facts: { isActive: false, waitingOnApproval: false, waitingOnUserInput: false, hasUnreadTurn: false } });
     const notification = taskTransitionNotification(live(previous), live(item), this.#appearance, item.title);
+    // Marking a read completion unread only rewinds lastVisitedAt. Keep its
+    // unread appearance, but do not announce the same completion again.
+    if (notification?.status === "done" && threadStatus(previous) === "idle"
+      && timestamp(item.latestRunCompletedAt) <= timestamp(previous.latestRunCompletedAt)) return;
     if (notification) this.notifier.notify(notification);
   }
   #snapshot(settings: TaskKeySettings) {
