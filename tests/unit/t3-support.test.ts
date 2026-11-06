@@ -419,3 +419,52 @@ test("T3 prioritization exposes running threads beyond seven keys while preservi
     assert.deepEqual(titles(true), [...pins, "unread", "goal", "running", ...Array.from({ length: 8 }, (_, i) => `read-${i}`)]);
   }
 });
+
+test("T3 projects a large settled history once per render across keys and inspectors", async (t) => {
+  let receive!: (event: unknown) => void;
+  let ready!: () => void;
+  const started = new Promise<void>(resolve => { ready = resolve; });
+  const previews = new Map<string, string>();
+  const client: T3RuntimeClient = {
+    environmentId: "env", version: "test", async connect() {}, close() {},
+    subscribe(tag, _payload, listener) { if (tag === "orchestration.subscribeShell") { receive = listener; ready(); } },
+    async rpc() { return config; }, async http() { return {}; },
+  };
+  const runtime = new T3Runtime(async value => {
+    const state = record(value);
+    if (state.type === "fingertip-state") previews.set(String(state.actionId), decodeURIComponent(String(state.preview)));
+  }, notifier, { async loadCredentials() { return { origin: "http://localhost", token: "test" }; }, createClient() { return client; } });
+  t.after(() => runtime.shutdown());
+  for (let position = 1; position <= 32; position++) {
+    const id = String(position);
+    runtime.attachAction({ id, async setImage() {}, async showAlert() {} }, normalizeTaskKeySettings({
+      backend: "t3", taskPosition: position <= 16 ? position : position - 16,
+      taskSource: position <= 16 ? "pinned-projects" : "tasks",
+    }));
+    runtime.propertyInspectorDidAppear(id);
+  }
+  await started;
+  // Let the independent model-catalog refresh finish before counting renders.
+  await new Promise(resolve => setImmediate(resolve));
+  let historyReads = 0;
+  let activeReads = 0;
+  const history = Array.from({ length: 10_000 }, (_, i) => shell(`settled-${i}`, {
+    settledAt: newer, settledOverride: "settled",
+  }));
+  Object.defineProperty(history[0], "goal", { get() { historyReads++; return null; } });
+  const pin = shell("Pinned", { pinnedAt: newer });
+  const live = shell("Running", { status: "running" });
+  Object.defineProperty(pin, "goal", { get() { activeReads++; return null; } });
+  receive({ kind: "snapshot", snapshot: { threads: [...history, pin, live], projects: [] } });
+  assert.equal(historyReads, 0, "settled goal state is never projected");
+  assert.equal(activeReads, 1, "32 keys and their inspectors share one projection");
+  assert.match(previews.get("1")!, /Task 1: Pinned/);
+  assert.match(previews.get("2")!, /Task 2: Running, working/);
+  assert.match(previews.get("17")!, /Task 1: Running, working/);
+  receive({ kind: "thread.updated", location: "active", thread: { ...live, status: "completed" } });
+  assert.equal(historyReads, 0);
+  assert.equal(activeReads, 2, "a live update invalidates the projection once");
+  assert.match(previews.get("17")!, /Task 1: Running, done/);
+  receive({ kind: "thread.updated", location: "active", thread: { ...live, settledOverride: "settled" } });
+  assert.match(previews.get("17")!, /No Task/);
+});

@@ -32,6 +32,11 @@ export class T3Runtime {
   #inspectors = new Set<string>();
   #threads = new Map<string, T3Thread>();
   #projects = new Map<string, Record<string, unknown>>();
+  #projection: {
+    feed: ReturnType<typeof taskFeed>;
+    live: Map<TaskId, { freshness: "fresh" | "stale"; status: ReturnType<typeof threadStatus> }>;
+    goals: Map<TaskId, boolean>;
+  } | null = null;
   #catalog: T3Model[] = [];
   #appearance = DEFAULT_TASK_KEY_APPEARANCE;
   #client: T3RuntimeClient | null = null;
@@ -202,14 +207,29 @@ export class T3Runtime {
   }
   #snapshot(settings: TaskKeySettings) {
     const environment = this.#environmentId;
-    const feed = taskFeed(this.#threads.values(), this.#projects, environment, settings.taskSource);
-    const live = new Map([...this.#threads.values()].map((item) => [taskKey(environment, item.id), {
-      freshness: this.#online ? "fresh" as const : "stale" as const, status: threadStatus(item),
-    }]));
+    // Share the full-history projection across every key and inspector until
+    // the next render. Settled history must not be scanned once per key.
+    if (!this.#projection) {
+      const feed = taskFeed(this.#threads.values(), this.#projects, environment, "pinned-projects");
+      const listed = new Set(feed.map((item) => item.id));
+      const live = new Map<TaskId, { freshness: "fresh" | "stale"; status: ReturnType<typeof threadStatus> }>();
+      const goals = new Map<TaskId, boolean>();
+      for (const item of this.#threads.values()) {
+        const key = taskKey(environment, item.id);
+        if (!listed.has(key)) continue;
+        live.set(key, { freshness: this.#online ? "fresh" : "stale", status: threadStatus(item) });
+        goals.set(key, record(item.goal).status === "active");
+      }
+      this.#projection = { feed, live, goals };
+    }
+    const { live, goals } = this.#projection;
+    const feed = settings.taskSource === "tasks"
+      ? this.#projection.feed.filter((item) => !item.pinned).map((item) => ({ ...item, source: "tasks" as const }))
+      : this.#projection.feed;
     return createKeySnapshot({ settings: { ...settings, moveActiveUnreadThreadsToTop: this.#appearance.moveActiveUnreadThreadsToTop }, appearance: this.#appearance,
       catalog: this.#hasSnapshot ? { state: this.#online ? "fresh" : "stale", feed } : { state: this.#connecting ? "cold" : "unavailable", feed: null },
       desktopState: this.#online ? "online" : "offline", liveByTaskId: live, now: Date.now(),
-      ongoingGoalByTaskId: new Map([...this.#threads.values()].map((item) => [taskKey(environment, item.id), record(item.goal).status === "active"])),
+      ongoingGoalByTaskId: goals,
       highlightedTaskIds: new Set([...this.#highlighted].filter(([, until]) => until > Date.now()).map(([key]) => key)),
     });
   }
@@ -222,6 +242,7 @@ export class T3Runtime {
         && String(selections(selection.options).find((item) => item.id === model.effortId)?.value ?? model.defaultReasoningEffort) === entry.settings.effort });
   }
   #render(): void {
+    this.#projection = null;
     this.#registry.render((settings) => this.#snapshot(settings));
     for (const entry of this.#models.values()) {
       const image = this.#modelImage(entry);
