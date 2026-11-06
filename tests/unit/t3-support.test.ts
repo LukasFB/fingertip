@@ -4,6 +4,7 @@ import { activeThread, modelOptions, modelsFromConfig, taskFeed, thread, threadL
 import { pairT3, record, serverOrigin, T3Client } from "../../src/t3/t3-client.ts";
 import { T3Runtime, type T3RuntimeClient } from "../../src/t3/t3-runtime.ts";
 import { normalizeTaskKeySettings, taskKeySettingsNeedWriteback } from "../../src/settings/task-key-settings.ts";
+import { taskAtPositionForKey } from "../../src/runtime/task-selection.ts";
 import { normalizeModelKeySettings } from "../../src/settings/model-key-settings.ts";
 import type { TaskNotifier } from "../../src/notifications/mac-task-notifier.ts";
 
@@ -306,7 +307,9 @@ test("T3 completion moves the green task from key 2 to key 1 on the live event",
     assert.match(previews.get("2")!, /#9cd5fe/);
   }
   receive({ kind: "thread.updated", location: "active", thread: { ...completed, lastVisitedAt: newer } });
-  assert.match(previews.get("1")!, /Finishing/, "reading the inbox task does not move it below the Working shelf");
+  assert.match(previews.get("1")!, /Recent/, "prioritization keeps running work ahead of the read inbox task");
+  runtime.updateAppearance({ moveActiveUnreadThreadsToTop: false });
+  assert.match(previews.get("1")!, /Recent/, "T3 prioritization is independent of the Codex preference");
   receive({ kind: "thread.updated", location: "active", thread: { ...completed, settledOverride: "settled" } });
   assert.match(previews.get("1")!, /Recent/);
   assert.match(previews.get("2")!, /No Task/);
@@ -395,4 +398,24 @@ test("repository enrichment preserves running threads, projects and later status
   assert.equal(preview, blue, "a new running event must restore the blue working render");
   receive({ kind: "snapshot", snapshot: { threads: [], projects: [] } });
   assert.match(decodeURIComponent(preview.slice(preview.indexOf(",") + 1)), /No Task/);
+});
+
+
+test("T3 prioritization exposes running threads beyond seven keys while preserving pins and unread returns", () => {
+  const items = [shell("pin-1", { pinnedAt: newer, lastVisitedAt: newer }),
+    shell("pin-2", { pinnedAt: newer, lastVisitedAt: newer }),
+    shell("unread"),
+    ...Array.from({ length: 8 }, (_, i) => shell(`read-${i}`, { lastVisitedAt: newer })),
+    shell("running", { status: "running" }),
+    shell("goal", { status: "waiting", goal: { status: "active" } })];
+  for (const taskSource of ["tasks", "pinned-projects"]) {
+    const feed = taskFeed(items, new Map(), "env", taskSource);
+    const context = { catalogState: "fresh" as const, desktopState: "online" as const,
+      liveByTaskId: new Map(items.map(item => [`t3:env:${item.id}`, { freshness: "fresh" as const, status: threadStatus(item) }])) };
+    const titles = (enabled: boolean) => feed.map((_, i) => taskAtPositionForKey(feed,
+      normalizeTaskKeySettings({ backend: "t3", taskSource, taskPosition: i + 1, moveActiveUnreadThreadsToTop: enabled }), context)?.title);
+    const pins = taskSource === "tasks" ? [] : ["pin-1", "pin-2"];
+    assert.deepEqual(titles(false), titles(true), "T3 always prioritizes active and unread threads");
+    assert.deepEqual(titles(true), [...pins, "unread", "goal", "running", ...Array.from({ length: 8 }, (_, i) => `read-${i}`)]);
+  }
 });

@@ -144,7 +144,9 @@ T3 task keys show pinned and active top-level threads, or just unpinned active
 threads. Archived, settled, snoozed, subagent and side-chat threads are omitted. Pinned
 threads keep their pin order, followed by the inbox (newest completion or return
 first), then the Working shelf in send order. This follows T3's Working shelf
-layout; other sidebar grouping preferences are not mirrored. Press to
+layout as its base order; other sidebar grouping preferences are not mirrored.
+T3 always prioritizes running work and unread returns before read inbox entries,
+keeping pinned threads in place. The optional ordering setting applies only to Codex. Press to
 open the thread, double press to highlight it, and hold to mark it unread.
 Status colors, animations, project labels, Goal badges and notifications use
 the existing shared appearance settings. Queue and Git-diff badges currently

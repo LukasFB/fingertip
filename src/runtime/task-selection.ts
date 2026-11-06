@@ -32,9 +32,9 @@ function orderedTasksForKey(
   context: TaskSelectionContext,
 ): readonly CatalogTask[] {
   const selected = feed.filter((task) => task.source === settings.taskSource);
-  // The T3 feed already follows inbox + Working shelf order. Reapplying the
-  // Codex preference would move read inbox threads below the Working shelf.
-  if (settings.backend === "t3" || !settings.moveActiveUnreadThreadsToTop) return selected;
+  // T3 always prioritizes active and unread threads; Codex makes this optional.
+  // Pinned slots remain fixed for both backends.
+  if (settings.backend !== "t3" && !settings.moveActiveUnreadThreadsToTop) return selected;
 
   const reorderableTasks = selected.filter((task) => isReorderedTask(task, settings));
   const prioritizedTasks = [

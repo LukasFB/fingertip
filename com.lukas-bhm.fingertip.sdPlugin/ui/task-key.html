@@ -74,7 +74,7 @@
     <label for="move-active-unread-threads">Project Threads</label>
     <div>
       <label class="toggle"><input id="move-active-unread-threads" type="checkbox"><span>Move active &amp; unread threads to top</span></label>
-      <div class="helper">Applies to every Agent Task key. Active and unread Threads come first; idle Threads follow in sidebar order. Pinned threads stay unchanged.</div>
+      <div class="helper" id="thread-ordering-help">Applies to every Codex Agent Task key. Active and unread Threads come first; idle Threads follow in sidebar order. Pinned threads stay unchanged.</div>
     </div>
   </div>
   <div class="item" data-tab="general">
@@ -398,7 +398,11 @@
 
     FingertipPI.onSettings((settings) => {
       source.value = settings.taskSource;
-      moveActiveUnreadThreads.checked = settings.moveActiveUnreadThreadsToTop;
+      moveActiveUnreadThreads.checked = settings.backend === "t3" || settings.moveActiveUnreadThreadsToTop;
+      moveActiveUnreadThreads.disabled = settings.backend === "t3";
+      document.querySelector("#thread-ordering-help").textContent = settings.backend === "t3"
+        ? "Always enabled for T3 Code. Active and unread threads come first; pinned threads stay unchanged."
+        : "Applies to every Codex Agent Task key. Active and unread Threads come first; idle Threads follow in sidebar order. Pinned threads stay unchanged.";
       queueBadge.checked = settings.showQueueBadge;
       goalBadge.checked = settings.showGoalBadge;
       badgePosition.value = settings.badgePosition;
